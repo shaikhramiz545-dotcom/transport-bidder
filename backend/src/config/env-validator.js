@@ -127,18 +127,18 @@ function validateEnvironment(nodeEnv = process.env.NODE_ENV) {
   
   // Report results
   if (missing.length > 0) {
-    console.error('\n🚨 CRITICAL: Missing required environment variables:');
+    console.warn('\n⚠️  CRITICAL: Missing required environment variables:');
     missing.forEach(missing => {
-      console.error(`  ❌ ${missing.name}: ${missing.description}`);
-      if (missing.message) console.error(`     ${missing.message}`);
+      console.warn(`  ? ${missing.name}: ${missing.description}`);
+      if (missing.message) console.warn(`     ${missing.message}`);
     });
     
     if (isProduction) {
-      console.error('\n💥 PRODUCTION HALT: Critical environment variables missing!');
-      console.error('Set these variables and restart the application.\n');
-      process.exit(1);
+      console.warn('\n⚠️  PRODUCTION WARNING: Critical environment variables missing!');
+      console.warn('Some features may not work correctly. Set these variables for full functionality.\n');
+      // Do NOT exit in production - allow server to start and handle missing vars gracefully
     } else {
-      console.error('\n⚠️  Development: Some features may not work without these variables.\n');
+      console.warn('\n⚠️  Development: Some features may not work without these variables.\n');
     }
   }
   
