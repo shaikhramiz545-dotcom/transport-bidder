@@ -56,6 +56,146 @@ async function resolveAuthDriverId(req) {
 /** Peru driver document types (Step 1: personal; Step 2: vehicle). */
 const DRIVER_DOC_TYPES = ['brevete_frente', 'brevete_dorso', 'dni', 'selfie', 'soat', 'tarjeta_propiedad', 'foto_vehiculo'];
 
+const DRIVER_DOC_URL_ALIASES = {
+  brevete_frente: ['breveteFrenteUrl', 'brevete_frente_url', 'licenseFrontUrl', 'license_front_url'],
+  brevete_dorso: ['breveteDorsoUrl', 'brevete_dorso_url', 'licenseBackUrl', 'license_back_url'],
+  dni: ['dniUrl', 'dni_url'],
+  selfie: ['selfieUrl', 'selfie_url', 'photoUrl', 'photo_url'],
+  soat: ['soatUrl', 'soat_url'],
+  tarjeta_propiedad: ['tarjetaPropiedadUrl', 'tarjeta_propiedad_url', 'propertyCardUrl', 'property_card_url'],
+  foto_vehiculo: ['fotoVehiculoUrl', 'foto_vehiculo_url', 'vehiclePhotoUrl', 'vehicle_photo_url'],
+};
+
+function cleanString(value) {
+  if (value == null) return null;
+  const trimmed = String(value).trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function sanitizeDocumentUrl(value) {
+  const url = cleanString(value);
+  if (!url) return null;
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('/uploads/')) return url;
+  return null;
+}
+
+function extractDocumentUrlsFromBody(body = {}) {
+  const urls = {};
+  const direct = body.documentUrls && typeof body.documentUrls === 'object' ? body.documentUrls : null;
+
+  for (const docType of DRIVER_DOC_TYPES) {
+    let url = null;
+    if (direct) {
+      url = sanitizeDocumentUrl(direct[docType]);
+    }
+    if (!url) {
+      const aliases = DRIVER_DOC_URL_ALIASES[docType] || [];
+      for (const key of aliases) {
+        const fromBody = sanitizeDocumentUrl(body[key]);
+        if (fromBody) {
+          url = fromBody;
+          break;
+        }
+      }
+    }
+    if (url) urls[docType] = url;
+  }
+  return urls;
+}
+
+function fileNameFromUrl(fileUrl, fallback) {
+  try {
+    const noQuery = String(fileUrl).split('?')[0];
+    const last = noQuery.split('/').filter(Boolean).pop();
+    return decodeURIComponent(last || fallback);
+  } catch (_) {
+    return fallback;
+  }
+}
+
+async function upsertDriverDocumentRecord(driverId, documentType, fileUrl, metadata = {}) {
+  const defaults = {
+    driverId,
+    documentType,
+    fileUrl,
+    fileName: fileNameFromUrl(fileUrl, `${documentType}.jpg`),
+  };
+  if (metadata.issueDate) defaults.issueDate = metadata.issueDate;
+  if (metadata.expiryDate) defaults.expiryDate = metadata.expiryDate;
+  if (metadata.policyNumber) defaults.policyNumber = metadata.policyNumber;
+  if (metadata.insuranceCompany) defaults.insuranceCompany = metadata.insuranceCompany;
+  if (metadata.certificateNumber) defaults.certificateNumber = metadata.certificateNumber;
+  if (metadata.inspectionCenter) defaults.inspectionCenter = metadata.inspectionCenter;
+
+  const [doc] = await DriverDocument.findOrCreate({
+    where: { driverId, documentType },
+    defaults,
+  });
+
+  const updates = {};
+  if (doc.fileUrl !== fileUrl) updates.fileUrl = fileUrl;
+  const nextName = fileNameFromUrl(fileUrl, `${documentType}.jpg`);
+  if (doc.fileName !== nextName) updates.fileName = nextName;
+  if (metadata.issueDate && doc.issueDate !== metadata.issueDate) updates.issueDate = metadata.issueDate;
+  if (metadata.expiryDate && doc.expiryDate !== metadata.expiryDate) updates.expiryDate = metadata.expiryDate;
+  if (metadata.policyNumber && doc.policyNumber !== metadata.policyNumber) updates.policyNumber = metadata.policyNumber;
+  if (metadata.insuranceCompany && doc.insuranceCompany !== metadata.insuranceCompany) updates.insuranceCompany = metadata.insuranceCompany;
+  if (metadata.certificateNumber && doc.certificateNumber !== metadata.certificateNumber) updates.certificateNumber = metadata.certificateNumber;
+  if (metadata.inspectionCenter && doc.inspectionCenter !== metadata.inspectionCenter) updates.inspectionCenter = metadata.inspectionCenter;
+
+  if (Object.keys(updates).length > 0) {
+    await doc.update(updates);
+  }
+}
+
+async function persistVerificationDocumentData(driverId, body = {}, fallbackSelfieUrl = null) {
+  const urls = extractDocumentUrlsFromBody(body);
+  if (fallbackSelfieUrl && !urls.selfie) {
+    const cleaned = sanitizeDocumentUrl(fallbackSelfieUrl);
+    if (cleaned) urls.selfie = cleaned;
+  }
+
+  const soatExpiry = cleanString(body.soatExpiry) || cleanString(body.soat?.expiryDate);
+  const soatIssueDate = cleanString(body.soatIssueDate) || cleanString(body.soat?.issueDate);
+  const soatPolicyNumber = cleanString(body.soatPolicyNumber) || cleanString(body.soat?.policyNumber);
+  const soatInsuranceCompany = cleanString(body.soatInsuranceCompany) || cleanString(body.soat?.insuranceCompany);
+  const soatCertificateNumber = cleanString(body.soatCertificateNumber) || cleanString(body.soat?.certificateNumber);
+  const soatInspectionCenter = cleanString(body.soatInspectionCenter) || cleanString(body.soat?.inspectionCenter);
+
+  const entries = Object.entries(urls);
+  for (const [docType, fileUrl] of entries) {
+    const metadata = {};
+    if (docType === 'soat') {
+      if (soatIssueDate) metadata.issueDate = soatIssueDate;
+      if (soatExpiry) metadata.expiryDate = soatExpiry;
+      if (soatPolicyNumber) metadata.policyNumber = soatPolicyNumber;
+      if (soatInsuranceCompany) metadata.insuranceCompany = soatInsuranceCompany;
+      if (soatCertificateNumber) metadata.certificateNumber = soatCertificateNumber;
+      if (soatInspectionCenter) metadata.inspectionCenter = soatInspectionCenter;
+    }
+    await upsertDriverDocumentRecord(driverId, docType, fileUrl, metadata);
+  }
+
+  // If metadata is present but SOAT URL is not in payload, still sync metadata to existing SOAT document.
+  if (!urls.soat && (soatIssueDate || soatExpiry || soatPolicyNumber || soatInsuranceCompany || soatCertificateNumber || soatInspectionCenter)) {
+    const existingSoat = await DriverDocument.findOne({
+      where: { driverId, documentType: 'soat' },
+    });
+    if (existingSoat) {
+      const updates = {};
+      if (soatIssueDate && existingSoat.issueDate !== soatIssueDate) updates.issueDate = soatIssueDate;
+      if (soatExpiry && existingSoat.expiryDate !== soatExpiry) updates.expiryDate = soatExpiry;
+      if (soatPolicyNumber && existingSoat.policyNumber !== soatPolicyNumber) updates.policyNumber = soatPolicyNumber;
+      if (soatInsuranceCompany && existingSoat.insuranceCompany !== soatInsuranceCompany) updates.insuranceCompany = soatInsuranceCompany;
+      if (soatCertificateNumber && existingSoat.certificateNumber !== soatCertificateNumber) updates.certificateNumber = soatCertificateNumber;
+      if (soatInspectionCenter && existingSoat.inspectionCenter !== soatInspectionCenter) updates.inspectionCenter = soatInspectionCenter;
+      if (Object.keys(updates).length > 0) {
+        await existingSoat.update(updates);
+      }
+    }
+  }
+}
+
 const driverDocsRoot = path.join(__dirname, '..', '..', 'uploads', 'driver-docs');
 const driverDocStorage = multer.diskStorage({
   destination: (req, _file, cb) => {
@@ -436,6 +576,23 @@ router.get('/profile', requireRole('driver'), async (req, res) => {
           email: fsRow.email || null,
           vehicleType: fsRow.vehicleType || null,
           vehiclePlate: fsRow.vehiclePlate || null,
+          city: fsRow.city || null,
+          dni: fsRow.dni || null,
+          phone: fsRow.phone || null,
+          license: fsRow.license || null,
+          photoUrl: fsRow.photoUrl || null,
+          vehicleBrand: fsRow.vehicleBrand || null,
+          vehicleModel: fsRow.vehicleModel || null,
+          vehicleColor: fsRow.vehicleColor || null,
+          registrationYear: fsRow.registrationYear ?? null,
+          vehicleCapacity: fsRow.vehicleCapacity ?? null,
+          licenseClass: fsRow.licenseClass || null,
+          licenseIssueDate: fsRow.licenseIssueDate || null,
+          licenseExpiryDate: fsRow.licenseExpiryDate || null,
+          dniIssueDate: fsRow.dniIssueDate || null,
+          dniExpiryDate: fsRow.dniExpiryDate || null,
+          engineNumber: fsRow.engineNumber || null,
+          chassisNumber: fsRow.chassisNumber || null,
         };
       }
     } catch (_) {}
@@ -616,8 +773,8 @@ router.post('/verification-register', requireRole('driver'), async (req, res) =>
     const hasCity = body.city != null;
     const hasDni = body.dni != null;
     const hasPhone = body.phone != null;
-    const hasLicense = body.license != null;
-    const hasPhotoUrl = body.photoUrl != null;
+    const hasLicense = body.license != null || body.licenseNumber != null;
+    const hasPhotoUrl = body.photoUrl != null || body.selfieUrl != null;
     // NEW: Vehicle detail fields
     const hasVehicleBrand = body.vehicleBrand != null;
     const hasVehicleModel = body.vehicleModel != null;
@@ -645,8 +802,10 @@ router.post('/verification-register', requireRole('driver'), async (req, res) =>
     const city = hasCity ? String(body.city).trim() : null;
     const dni = hasDni ? String(body.dni).trim() : null;
     const phone = hasPhone ? String(body.phone).trim() : null;
-    const license = hasLicense ? String(body.license).trim() : null;
-    const photoUrl = hasPhotoUrl ? String(body.photoUrl).trim() : null;
+    const licenseInput = body.license != null ? body.license : body.licenseNumber;
+    const license = hasLicense ? String(licenseInput).trim() : null;
+    const photoInput = body.photoUrl != null ? body.photoUrl : body.selfieUrl;
+    const photoUrl = hasPhotoUrl ? String(photoInput).trim() : null;
     // NEW: Parse vehicle detail fields
     const vehicleBrand = hasVehicleBrand ? String(body.vehicleBrand).trim() : null;
     const vehicleModel = hasVehicleModel ? String(body.vehicleModel).trim() : null;
@@ -868,6 +1027,13 @@ router.post('/verification-register', requireRole('driver'), async (req, res) =>
       try { await DriverIdentity.findOrCreate({ where: { phone: authPhone }, defaults: { phone: authPhone, driverId } }); } catch (_) {}
     }
 
+    // Keep document URLs + SOAT metadata consistent even when app submits URL payloads.
+    try {
+      await persistVerificationDocumentData(driverId, body, photoUrl);
+    } catch (docPersistErr) {
+      console.warn('[drivers] verification-register document sync skipped:', docPersistErr.message);
+    }
+
     return res.json({ ok: true, status: finalStatus });
   } catch (err) {
     console.error('[drivers] verification-register', err.message);
@@ -900,7 +1066,7 @@ router.post('/documents', requireRole('driver'), uploadDriverDoc.single('file'),
       return res.status(400).json({ ok: false, message: 'documentType must be one of: ' + DRIVER_DOC_TYPES.join(', ') });
     }
     
-    // captureTimestamp is optional; validate with relaxed window (1h past, 10m future) and log
+    // captureTimestamp is optional. Keep relaxed checks for observability only; do not block uploads.
     if (captureTimestamp) {
       const captureMs = Date.parse(captureTimestamp);
       const nowMs = Date.now();
@@ -910,10 +1076,20 @@ router.post('/documents', requireRole('driver'), uploadDriverDoc.single('file'),
       if (!Number.isNaN(captureMs)) {
         const diff = nowMs - captureMs; // positive if in past
         if (diff > MAX_PAST_WINDOW) {
-          return res.status(400).json({ code: 'EXPIRED_PHOTO', message: 'Photo must be captured within 1 hour. Please retake the photo.' });
+          console.warn('[drivers] documents upload timestamp out-of-window (past)', {
+            driverId,
+            documentType,
+            captureTimestamp,
+            diffMinutes: Math.round(diff / 60000),
+          });
         }
         if (diff < -FUTURE_TOLERANCE) {
-          return res.status(400).json({ code: 'INVALID_TIMESTAMP', message: 'Invalid timestamp. Please check your device clock.' });
+          console.warn('[drivers] documents upload timestamp out-of-window (future)', {
+            driverId,
+            documentType,
+            captureTimestamp,
+            diffMinutes: Math.round(diff / 60000),
+          });
         }
       }
     }
@@ -977,6 +1153,18 @@ router.post('/documents', requireRole('driver'), uploadDriverDoc.single('file'),
         await doc.update(updates);
       }
     }
+    if (documentType === 'selfie') {
+      try {
+        await DriverVerification.update({ photoUrl: fileUrl }, { where: { driverId } });
+      } catch (pgPhotoErr) {
+        console.warn('[drivers] documents selfie PG photo sync skipped:', pgPhotoErr.message);
+      }
+      try {
+        await db.updateDriverVerification(driverId, { photoUrl: fileUrl });
+      } catch (fsPhotoErr) {
+        console.warn('[drivers] documents selfie Firestore photo sync skipped:', fsPhotoErr.message);
+      }
+    }
     // Ensure a DriverVerification row exists so admin panel sees this driver as pending
     try {
       await DriverVerification.findOrCreate({
@@ -1006,7 +1194,17 @@ router.get('/documents', requireRole('driver'), async (req, res) => {
     const list = await DriverDocument.findAll({
       where: { driverId },
       order: [['createdAt', 'ASC']],
-      attributes: ['id', 'documentType', 'fileUrl', 'fileName', 'expiryDate', 'createdAt'],
+      attributes: [
+        'id',
+        'documentType',
+        'fileUrl',
+        'fileName',
+        'issueDate',
+        'expiryDate',
+        'policyNumber',
+        'insuranceCompany',
+        'createdAt',
+      ],
       raw: true,
     });
     return res.json({
@@ -1015,7 +1213,10 @@ router.get('/documents', requireRole('driver'), async (req, res) => {
         documentType: d.documentType,
         fileUrl: d.fileUrl,
         fileName: d.fileName,
+        issueDate: d.issueDate || null,
         expiryDate: d.expiryDate || null,
+        policyNumber: d.policyNumber || null,
+        insuranceCompany: d.insuranceCompany || null,
         createdAt: d.createdAt,
       })),
     });
@@ -1116,7 +1317,7 @@ router.post('/profile-photo', requireRole('driver'), uploadDriverDoc.single('fil
     if (authDriverId && requestedDriverId && requestedDriverId !== authDriverId) {
       return res.status(403).json({ ok: false, message: 'Forbidden' });
     }
-    // captureTimestamp is optional; validate with relaxed window (1h past, 10m future) and log
+    // captureTimestamp is optional. Keep relaxed checks for observability only; do not block uploads.
     if (captureTimestamp) {
       const captureMs = Date.parse(captureTimestamp);
       const nowMs = Date.now();
@@ -1126,16 +1327,24 @@ router.post('/profile-photo', requireRole('driver'), uploadDriverDoc.single('fil
       if (!Number.isNaN(captureMs)) {
         const diff = nowMs - captureMs; // positive if in past
         if (diff > MAX_PAST_WINDOW) {
-          return res.status(400).json({ code: 'EXPIRED_PHOTO', message: 'Photo must be captured within 1 hour. Please retake the photo.' });
+          console.warn('[drivers] profile-photo timestamp out-of-window (past)', {
+            driverId,
+            captureTimestamp,
+            diffMinutes: Math.round(diff / 60000),
+          });
         }
         if (diff < -FUTURE_TOLERANCE) {
-          return res.status(400).json({ code: 'INVALID_TIMESTAMP', message: 'Invalid timestamp. Please check your device clock.' });
+          console.warn('[drivers] profile-photo timestamp out-of-window (future)', {
+            driverId,
+            captureTimestamp,
+            diffMinutes: Math.round(diff / 60000),
+          });
         }
       }
     }
     
     // Store photo URL in driver verification
-    const photoUrl = `/uploads/drivers/${req.file.filename}`;
+    const photoUrl = `/uploads/driver-docs/${driverId}/${req.file.filename}`;
     
     try {
       await db.updateDriverVerification(driverId, { photoUrl });
@@ -1151,6 +1360,11 @@ router.post('/profile-photo', requireRole('driver'), uploadDriverDoc.single('fil
       await row.update({ photoUrl });
     } catch (pgErr) {
       console.error('[drivers] profile-photo PG update failed:', pgErr.message);
+    }
+    try {
+      await upsertDriverDocumentRecord(driverId, 'selfie', photoUrl, {});
+    } catch (selfieErr) {
+      console.warn('[drivers] profile-photo selfie document sync skipped:', selfieErr.message);
     }
     
     // Log activity with GPS

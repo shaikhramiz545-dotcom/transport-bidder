@@ -1,6 +1,16 @@
 require('dotenv').config();
 
+// Import environment validator
+const { validateEnvironment, getEnvironmentSummary } = require('./env-validator');
+
 const env = process.env.NODE_ENV || 'development';
+
+// Validate environment variables and fail fast in production
+const envValidation = validateEnvironment(env);
+
+// Show environment summary
+getEnvironmentSummary();
+
 const jwtSecret = process.env.JWT_SECRET;
 
 if (env === 'production' && !jwtSecret) {

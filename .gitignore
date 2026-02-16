@@ -69,11 +69,19 @@ node_modules/
 .dataconnect
 
 # =====================
-# Secrets
+# Secrets - CRITICAL SECURITY
 # =====================
 firebase-admin-key.json
+firebase-admin-key-functions.json
+**/firebase-admin-key*.json
 *firebase-admin-key.json
 google-services.json
+service-account.json
+**/service-account*.json
+**/*.key.json
+**/api-keys.json
+**/secrets.json
+**/credentials.json
 *.keystore
 *.jks
 

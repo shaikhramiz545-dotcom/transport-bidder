@@ -1373,8 +1373,17 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
   font-weight: 600;
   font-size: 0.9rem;
+}
+.drivers-avatar-img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  border-radius: inherit;
+  background: #fff;
 }
 .drivers-name { font-weight: 500; }
 .drivers-id { font-size: 0.75rem; color: #666; }
@@ -1489,7 +1498,9 @@
 .driver-doc-thumb img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+  display: block;
+  background: #fff;
 }
 .driver-doc-thumb a { display: block; width: 100%; height: 100%; }
 .driver-doc-name { font-size: 0.85rem; color: #1A1A1A; font-weight: 600; }

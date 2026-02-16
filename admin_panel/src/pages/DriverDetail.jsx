@@ -17,6 +17,16 @@ const DOC_LABELS = {
 
 const uploadsBase = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/$/, '') : ''
 
+const toDocArrayFromObject = (documentUrls = {}) => {
+  const list = []
+  Object.entries(documentUrls || {}).forEach(([documentType, fileUrl]) => {
+    if (!Object.prototype.hasOwnProperty.call(DOC_TYPES, documentType)) return
+    if (!fileUrl || typeof fileUrl !== 'string') return
+    list.push({ documentType, fileUrl })
+  })
+  return list
+}
+
 function DriverDetail() {
   const { driverId } = useParams()
   const navigate = useNavigate()
@@ -45,12 +55,15 @@ function DriverDetail() {
     ])
       .then(([driverRes, docsRes, auditRes]) => {
         const d = driverRes.data.driver
+        const docsFromApi = docsRes.data.documents || []
+        const fallbackDocs = toDocArrayFromObject(d?.documentUrls)
+        const mergedDocs = docsFromApi.length > 0 ? docsFromApi : fallbackDocs
         setDriver(d)
         setAdminNotes(d?.adminNotes ?? '')
         setCustomRatePerKm(d?.customRatePerKm != null ? String(d.customRatePerKm) : '')
         setHasAntecedentesPoliciales(!!d?.hasAntecedentesPoliciales)
         setHasAntecedentesPenales(!!d?.hasAntecedentesPenales)
-        setDocuments(docsRes.data.documents || [])
+        setDocuments(mergedDocs)
         setAuditEntries(auditRes.data.entries || [])
         setError('')
       })
@@ -175,6 +188,12 @@ function DriverDetail() {
     ? (driver.photoUrl.startsWith('http') ? driver.photoUrl : `${uploadsBase}${driver.photoUrl}`)
     : null
 
+  const soatDoc = documents.find((d) => d.documentType === 'soat')
+  const soatIssueDate = driver?.soatIssueDate || soatDoc?.issueDate || null
+  const soatExpiryDate = driver?.soatExpiry || soatDoc?.expiryDate || null
+  const resolvedDni = driver?.dni || driver?.dniNumber || null
+  const resolvedLicenseNumber = driver?.licenseNumber || driver?.license || null
+
   if (loading) {
     return (
       <div className="dashboard-content">
@@ -292,7 +311,7 @@ function DriverDetail() {
             <h3>Personal Info</h3>
             <div className="driver-detail-fields">
               <div><span className="driver-detail-label">Name</span><span>{driver.driverName || '—'}</span></div>
-              <div><span className="driver-detail-label">DNI</span><span>{driver.dni || '—'}</span></div>
+              <div><span className="driver-detail-label">DNI</span><span>{resolvedDni || '—'}</span></div>
               <div><span className="driver-detail-label">Phone</span><span>{driver.phone || '—'}</span></div>
               <div><span className="driver-detail-label">Email</span><span>{driver.email || '—'}</span></div>
               <div><span className="driver-detail-label">City</span><span>{driver.city || '—'}</span></div>
@@ -358,20 +377,19 @@ function DriverDetail() {
                 <span>{driver.customRatePerKm != null ? Number(driver.customRatePerKm).toFixed(2) : '—'}</span>
               </div>
               <div>
+                <span className="driver-detail-label">SOAT issue</span>
+                <span>{soatIssueDate ? formatDate(soatIssueDate) : '—'}</span>
+              </div>
+              <div>
                 <span className="driver-detail-label">SOAT expiry</span>
-                <span>
-                  {(() => {
-                    const soat = documents.find((d) => d.documentType === 'soat')
-                    return soat?.expiryDate ? formatDate(soat.expiryDate) : '—'
-                  })()}
-                </span>
+                <span>{soatExpiryDate ? formatDate(soatExpiryDate) : '—'}</span>
               </div>
             </div>
           </section>
           <section className="driver-detail-card">
             <h3>License Info</h3>
             <div className="driver-detail-fields">
-              <div><span className="driver-detail-label">License Number</span><span>{driver.license || '—'}</span></div>
+              <div><span className="driver-detail-label">License Number</span><span>{resolvedLicenseNumber || '—'}</span></div>
               <div><span className="driver-detail-label">License Class</span><span>{driver.licenseClass || '—'}</span></div>
               <div><span className="driver-detail-label">Issue Date</span><span>{driver.licenseIssueDate ? formatDate(driver.licenseIssueDate) : '—'}</span></div>
               <div><span className="driver-detail-label">Expiry Date</span><span>{driver.licenseExpiryDate ? formatDate(driver.licenseExpiryDate) : '—'}</span></div>
@@ -380,7 +398,7 @@ function DriverDetail() {
           <section className="driver-detail-card">
             <h3>DNI Info</h3>
             <div className="driver-detail-fields">
-              <div><span className="driver-detail-label">DNI Number</span><span>{driver.dni || '—'}</span></div>
+              <div><span className="driver-detail-label">DNI Number</span><span>{resolvedDni || '—'}</span></div>
               <div><span className="driver-detail-label">Issue Date</span><span>{driver.dniIssueDate ? formatDate(driver.dniIssueDate) : '—'}</span></div>
               <div><span className="driver-detail-label">Expiry Date</span><span>{driver.dniExpiryDate ? formatDate(driver.dniExpiryDate) : '—'}</span></div>
             </div>

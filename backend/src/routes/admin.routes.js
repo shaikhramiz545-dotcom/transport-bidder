@@ -896,6 +896,12 @@ router.get('/drivers', authMiddleware, async (_req, res) => {
               vehicleType: fsDriver.vehicleType || 'car',
               vehiclePlate: fsDriver.vehiclePlate || null,
               driverName: fsDriver.driverName || null,
+              email: fsDriver.email || null,
+              city: fsDriver.city || null,
+              dni: fsDriver.dni || null,
+              phone: fsDriver.phone || null,
+              license: fsDriver.license || null,
+              photoUrl: fsDriver.photoUrl || null,
               blockReason: fsDriver.blockReason || null,
             },
           });
@@ -913,6 +919,12 @@ router.get('/drivers', authMiddleware, async (_req, res) => {
             vehicleType: fsDriver.vehicleType || 'car',
             vehiclePlate: fsDriver.vehiclePlate || null,
             driverName: fsDriver.driverName || null,
+            email: fsDriver.email || null,
+            city: fsDriver.city || null,
+            dni: fsDriver.dni || null,
+            phone: fsDriver.phone || null,
+            license: fsDriver.license || null,
+            photoUrl: fsDriver.photoUrl || null,
             blockReason: fsDriver.blockReason || null,
             updatedAt: fsDriver.updatedAt,
             createdAt: fsDriver.createdAt || fsDriver.updatedAt,
@@ -1006,12 +1018,20 @@ router.get('/drivers', authMiddleware, async (_req, res) => {
         driverName: d.driverName || null,
         email: d.email || null,
         blockReason: d.blockReason || null,
-        city: null,
-        phone: phoneByDriverId[d.driverId] || null,
+        city: d.city || null,
+        dni: d.dni || null,
+        license: d.license || null,
+        licenseNumber: d.license || null,
+        vehicleBrand: d.vehicleBrand || null,
+        vehicleModel: d.vehicleModel || null,
+        vehicleColor: d.vehicleColor || null,
+        registrationYear: d.registrationYear ?? null,
+        vehicleCapacity: d.vehicleCapacity ?? null,
+        phone: phoneByDriverId[d.driverId] || d.phone || null,
         updatedAt: d.updatedAt,
         createdAt: d.createdAt,
         documentsCount: docCounts[d.driverId] || 0,
-        photoUrl: photoByDriverId[d.driverId] || null,
+        photoUrl: photoByDriverId[d.driverId] || d.photoUrl || null,
         rating: ratingsByDriverId[d.driverId] ?? null,
       })),
     });
@@ -1027,12 +1047,21 @@ router.get('/drivers', authMiddleware, async (_req, res) => {
           vehicleType: d.vehicleType || 'car',
           vehiclePlate: d.vehiclePlate || null,
           driverName: d.driverName || null,
+          email: d.email || null,
           blockReason: d.blockReason || null,
-          city: null,
-          phone: null,
+          city: d.city || null,
+          dni: d.dni || null,
+          license: d.license || null,
+          licenseNumber: d.license || null,
+          vehicleBrand: d.vehicleBrand || null,
+          vehicleModel: d.vehicleModel || null,
+          vehicleColor: d.vehicleColor || null,
+          registrationYear: d.registrationYear ?? null,
+          vehicleCapacity: d.vehicleCapacity ?? null,
+          phone: d.phone || null,
           updatedAt: d.updatedAt,
           documentsCount: 0,
-          photoUrl: null,
+          photoUrl: d.photoUrl || null,
           rating: null,
         })),
       });
@@ -1072,6 +1101,7 @@ router.get('/drivers/:id', authMiddleware, async (req, res) => {
           phone: fsRow.phone || null,
           dni: fsRow.dni || null,
           license: fsRow.license || null,
+          licenseNumber: fsRow.license || null,
 
           vehicleBrand: fsRow.vehicleBrand || null,
           vehicleModel: fsRow.vehicleModel || null,
@@ -1088,18 +1118,47 @@ router.get('/drivers/:id', authMiddleware, async (req, res) => {
 
           engineNumber: fsRow.engineNumber || null,
           chassisNumber: fsRow.chassisNumber || null,
+          selfieUrl: fsRow.photoUrl || null,
+          documentUrls: {
+            brevete_frente: fsRow.breveteFrenteUrl || fsRow.brevete_frente_url || null,
+            brevete_dorso: fsRow.breveteDorsoUrl || fsRow.brevete_dorso_url || null,
+            dni: fsRow.dniUrl || fsRow.dni_url || null,
+            selfie: fsRow.selfieUrl || fsRow.photoUrl || null,
+            selfieUrl: fsRow.selfieUrl || fsRow.photoUrl || null,
+            soat: fsRow.soatUrl || fsRow.soat_url || null,
+            tarjeta_propiedad: fsRow.tarjetaPropiedadUrl || fsRow.tarjeta_propiedad_url || null,
+            foto_vehiculo: fsRow.fotoVehiculoUrl || fsRow.foto_vehiculo_url || null,
+          },
+          soatIssueDate: fsRow.soatIssueDate || null,
+          soatExpiry: fsRow.soatExpiry || null,
           updatedAt: fsRow.updatedAt,
-          photoUrl: null,
+          photoUrl: fsRow.photoUrl || null,
           rating: null,
         },
       });
     }
     const docs = await DriverDocument.findAll({
       where: { driverId },
-      attributes: ['documentType', 'fileUrl'],
+      attributes: ['documentType', 'fileUrl', 'issueDate', 'expiryDate'],
       raw: true,
     });
-    const selfie = docs.find((d) => d.documentType === 'selfie' && d.fileUrl);
+    const docUrls = {
+      brevete_frente: null,
+      brevete_dorso: null,
+      dni: null,
+      selfie: null,
+      soat: null,
+      tarjeta_propiedad: null,
+      foto_vehiculo: null,
+    };
+    for (const doc of docs) {
+      if (!doc?.documentType || !doc?.fileUrl) continue;
+      if (Object.prototype.hasOwnProperty.call(docUrls, doc.documentType) && !docUrls[doc.documentType]) {
+        docUrls[doc.documentType] = doc.fileUrl;
+      }
+    }
+    const selfieUrl = docUrls.selfie || null;
+    const soatDoc = docs.find((d) => d.documentType === 'soat');
     let rating = null;
     try {
       const ratingRow = await Ride.findOne({
@@ -1137,9 +1196,10 @@ router.get('/drivers/:id', authMiddleware, async (req, res) => {
         hasAntecedentesPoliciales: row.hasAntecedentesPoliciales ?? null,
         hasAntecedentesPenales: row.hasAntecedentesPenales ?? null,
         city: row.city || null,
-        phone: driverPhone,
+        phone: driverPhone || row.phone || null,
         dni: row.dni || null,
         license: row.license || null,
+        licenseNumber: row.license || null,
 
         vehicleBrand: row.vehicleBrand || null,
         vehicleModel: row.vehicleModel || null,
@@ -1156,8 +1216,16 @@ router.get('/drivers/:id', authMiddleware, async (req, res) => {
 
         engineNumber: row.engineNumber || null,
         chassisNumber: row.chassisNumber || null,
+        selfieUrl: selfieUrl || row.photoUrl || null,
+        documentUrls: {
+          ...docUrls,
+          selfie: selfieUrl || row.photoUrl || null,
+          selfieUrl: selfieUrl || row.photoUrl || null,
+        },
+        soatIssueDate: soatDoc?.issueDate || null,
+        soatExpiry: soatDoc?.expiryDate || null,
         updatedAt: row.updatedAt,
-        photoUrl: selfie?.fileUrl || null,
+        photoUrl: selfieUrl || row.photoUrl || null,
         rating,
       },
     });
@@ -1184,6 +1252,7 @@ router.get('/drivers/:id', authMiddleware, async (req, res) => {
           phone: fsRow.phone || null,
           dni: fsRow.dni || null,
           license: fsRow.license || null,
+          licenseNumber: fsRow.license || null,
 
           vehicleBrand: fsRow.vehicleBrand || null,
           vehicleModel: fsRow.vehicleModel || null,
@@ -1200,8 +1269,21 @@ router.get('/drivers/:id', authMiddleware, async (req, res) => {
 
           engineNumber: fsRow.engineNumber || null,
           chassisNumber: fsRow.chassisNumber || null,
+          selfieUrl: fsRow.photoUrl || null,
+          documentUrls: {
+            brevete_frente: fsRow.breveteFrenteUrl || fsRow.brevete_frente_url || null,
+            brevete_dorso: fsRow.breveteDorsoUrl || fsRow.brevete_dorso_url || null,
+            dni: fsRow.dniUrl || fsRow.dni_url || null,
+            selfie: fsRow.selfieUrl || fsRow.photoUrl || null,
+            selfieUrl: fsRow.selfieUrl || fsRow.photoUrl || null,
+            soat: fsRow.soatUrl || fsRow.soat_url || null,
+            tarjeta_propiedad: fsRow.tarjetaPropiedadUrl || fsRow.tarjeta_propiedad_url || null,
+            foto_vehiculo: fsRow.fotoVehiculoUrl || fsRow.foto_vehiculo_url || null,
+          },
+          soatIssueDate: fsRow.soatIssueDate || null,
+          soatExpiry: fsRow.soatExpiry || null,
           updatedAt: fsRow.updatedAt,
-          photoUrl: null,
+          photoUrl: fsRow.photoUrl || null,
           rating: null,
         },
       });
@@ -1545,7 +1627,19 @@ router.get('/drivers/:id/documents', authMiddleware, async (req, res) => {
     const list = await DriverDocument.findAll({
       where: { driverId },
       order: [['createdAt', 'ASC']],
-      attributes: ['id', 'documentType', 'fileUrl', 'fileName', 'expiryDate', 'createdAt'],
+      attributes: [
+        'id',
+        'documentType',
+        'fileUrl',
+        'fileName',
+        'issueDate',
+        'expiryDate',
+        'policyNumber',
+        'insuranceCompany',
+        'certificateNumber',
+        'inspectionCenter',
+        'createdAt',
+      ],
       raw: true,
     });
     return res.json({
@@ -1554,7 +1648,12 @@ router.get('/drivers/:id/documents', authMiddleware, async (req, res) => {
         documentType: d.documentType,
         fileUrl: d.fileUrl,
         fileName: d.fileName,
+        issueDate: d.issueDate || null,
         expiryDate: d.expiryDate || null,
+        policyNumber: d.policyNumber || null,
+        insuranceCompany: d.insuranceCompany || null,
+        certificateNumber: d.certificateNumber || null,
+        inspectionCenter: d.inspectionCenter || null,
         createdAt: d.createdAt,
       })),
     });

@@ -823,6 +823,28 @@ async function getDriverVerificationByDriverId(driverId) {
     vehiclePlate: d.vehiclePlate,
     driverName: d.driverName,
     email: d.email,
+    city: d.city || null,
+    dni: d.dni || null,
+    phone: d.phone || null,
+    license: d.license || null,
+    photoUrl: d.photoUrl || null,
+    vehicleBrand: d.vehicleBrand || null,
+    vehicleModel: d.vehicleModel || null,
+    vehicleColor: d.vehicleColor || null,
+    registrationYear: d.registrationYear ?? null,
+    vehicleCapacity: d.vehicleCapacity ?? null,
+    licenseClass: d.licenseClass || null,
+    licenseIssueDate: d.licenseIssueDate || null,
+    licenseExpiryDate: d.licenseExpiryDate || null,
+    dniIssueDate: d.dniIssueDate || null,
+    dniExpiryDate: d.dniExpiryDate || null,
+    engineNumber: d.engineNumber || null,
+    chassisNumber: d.chassisNumber || null,
+    hasAntecedentesPoliciales: d.hasAntecedentesPoliciales ?? null,
+    hasAntecedentesPenales: d.hasAntecedentesPenales ?? null,
+    customRatePerKm: d.customRatePerKm ?? null,
+    reuploadDocumentTypes: Array.isArray(d.reuploadDocumentTypes) ? d.reuploadDocumentTypes : [],
+    reuploadMessage: d.reuploadMessage || null,
     blockReason: d.blockReason,
     createdAt: d.createdAt?.toDate?.(), updatedAt: d.updatedAt?.toDate?.(),
   };
@@ -850,13 +872,33 @@ async function findOrCreateDriverVerification(driverId, defaults = {}) {
     vehiclePlate: defaults.vehiclePlate || null,
     driverName: defaults.driverName || null,
     email: defaults.email || null,
+    city: defaults.city || null,
+    dni: defaults.dni || null,
+    phone: defaults.phone || null,
+    license: defaults.license || null,
+    photoUrl: defaults.photoUrl || null,
+    vehicleBrand: defaults.vehicleBrand || null,
+    vehicleModel: defaults.vehicleModel || null,
+    vehicleColor: defaults.vehicleColor || null,
+    registrationYear: defaults.registrationYear ?? null,
+    vehicleCapacity: defaults.vehicleCapacity ?? null,
+    licenseClass: defaults.licenseClass || null,
+    licenseIssueDate: defaults.licenseIssueDate || null,
+    licenseExpiryDate: defaults.licenseExpiryDate || null,
+    dniIssueDate: defaults.dniIssueDate || null,
+    dniExpiryDate: defaults.dniExpiryDate || null,
+    engineNumber: defaults.engineNumber || null,
+    chassisNumber: defaults.chassisNumber || null,
+    hasAntecedentesPoliciales: defaults.hasAntecedentesPoliciales ?? null,
+    hasAntecedentesPenales: defaults.hasAntecedentesPenales ?? null,
+    customRatePerKm: defaults.customRatePerKm ?? null,
+    reuploadDocumentTypes: Array.isArray(defaults.reuploadDocumentTypes) ? defaults.reuploadDocumentTypes : [],
+    reuploadMessage: defaults.reuploadMessage || null,
     blockReason: defaults.blockReason || null,
     createdAt: now,
     updatedAt: now,
   });
-  const snap = await ref.get();
-  const d = snap.data();
-  row = { id: snap.id, driverId: d.driverId, status: d.status, vehicleType: d.vehicleType, vehiclePlate: d.vehiclePlate, driverName: d.driverName, blockReason: d.blockReason };
+  row = await getDriverVerificationByDriverId(driverId);
   return { row, created: true };
 }
 
@@ -877,7 +919,23 @@ async function listDriverVerifications(orderByUpdated = true) {
   const snap = await q.get();
   return snap.docs.map((d) => {
     const x = d.data();
-    return { id: d.id, driverId: x.driverId, status: x.status, vehicleType: x.vehicleType, vehiclePlate: x.vehiclePlate, driverName: x.driverName, blockReason: x.blockReason, updatedAt: x.updatedAt?.toDate?.() };
+    return {
+      id: d.id,
+      driverId: x.driverId,
+      status: x.status,
+      vehicleType: x.vehicleType,
+      vehiclePlate: x.vehiclePlate,
+      driverName: x.driverName,
+      email: x.email || null,
+      city: x.city || null,
+      dni: x.dni || null,
+      phone: x.phone || null,
+      license: x.license || null,
+      photoUrl: x.photoUrl || null,
+      blockReason: x.blockReason,
+      updatedAt: x.updatedAt?.toDate?.(),
+      createdAt: x.createdAt?.toDate?.(),
+    };
   });
 }
 

@@ -1,12 +1,22 @@
 require('dotenv').config();
 
+// Import environment validator
+const { validateEnvironment, getEnvironmentSummary } = require('./env-validator');
+
+const env = process.env.NODE_ENV || 'development';
+
+// Validate environment variables and fail fast in production
+const envValidation = validateEnvironment(env);
+
+// Show environment summary
+getEnvironmentSummary();
+
 // Local dev: default to localhost, no SSL. Set PG_HOST + PG_SSL=true only for cloud (e.g. RDS).
 const pgHost = process.env.PG_HOST || 'localhost';
 const isLocalDb = pgHost === 'localhost' || pgHost === '127.0.0.1';
 const pgSslEnv = process.env.PG_SSL;
 const pgSsl = pgSslEnv === 'true' || pgSslEnv === '1' || (!isLocalDb && pgSslEnv !== 'false');
 
-const env = process.env.NODE_ENV || 'development';
 const jwtSecret = process.env.JWT_SECRET;
 
 if (env === 'production' && !jwtSecret) {

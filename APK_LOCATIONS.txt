@@ -13,9 +13,13 @@ DRIVER APP APKs:
 
 APK_RELEASES folder (production releases):
 📁 APK_RELEASES/
-├── Driver_App_Release_v2.0.2+4.apk  (57.3 MB) - v2.0.2+4 LATEST RELEASE ✅
+├── Driver_App_Release_v2.2.7+17.apk  (57.3 MB) - v2.2.7+17 LATEST RELEASE ✅
+├── User_App_Release_v2.0.0+5.apk    (63.7 MB) - v2.0.0+5 LATEST RELEASE ✅
+├── Driver_App_Release_v2.2.7+17_UTC-Timestamp-Fix.apk (57.3 MB) - Previous version
+├── User_App_Release_v2.0.0+4.apk    (63.7 MB) - Previous user app
+├── Driver_App_Release_v2.0.2+4.apk  (57.3 MB) - v2.0.2+4
 ├── Driver_App_Release.apk  (57.3 MB) - v2.0.1+3
-├── User_App_Release.apk  (63.7 MB) - Current user app
+└── User_App_Release.apk  (63.7 MB) - Legacy user app
 
 RELEASE APKs (for production):
 - User App: user_app/build/app/outputs/flutter-apk/app-release.apk
@@ -25,10 +29,20 @@ DEBUG APKs (for testing):
 - User App: user_app/build/app/outputs/flutter-apk/app-debug.apk  
 - Driver App: driver_app/build/app/outputs/flutter-apk/app-debug.apk
 
-Last Updated: 2/13/2026 11:00 PM
+Last Updated: 2/16/2026 6:30 PM
 
 RELEASE NOTES:
 ================
+Driver App v2.2.7+17 - UTC Timestamp Fix (2/16/2026)
+----------------------------------------------------
+✅ RELEASED: Latest driver app with UTC timestamp fixes
+📦 APK: Driver_App_Release_v2.2.7+17.apk (57.3 MB)
+
+User App v2.0.0+5 - Latest User App Release (2/16/2026)
+-------------------------------------------------------
+✅ RELEASED: Latest user app with all current features
+📦 APK: User_App_Release_v2.0.0+5.apk (63.7 MB)
+
 Driver App v2.0.2+4 - Full Production Deploy + Verification Fix (2/13/2026)
 -----------------------------------------------------------
 ✅ DEPLOYED: Backend to Google Cloud Run (all fixes now live in production)

@@ -1,20 +1,45 @@
 /**
  * Firebase Admin SDK – used to update user passwords on reset (user & driver app).
- * Set FIREBASE_SERVICE_ACCOUNT_PATH or GOOGLE_APPLICATION_CREDENTIALS to path of service account JSON.
+ * 
+ * Environment Variable Options:
+ * 1. FIREBASE_SERVICE_ACCOUNT_PATH or GOOGLE_APPLICATION_CREDENTIALS - Path to service account JSON file
+ * 2. FIREBASE_PRIVATE_KEY + FIREBASE_CLIENT_EMAIL + FIREBASE_PROJECT_ID - Direct credentials
+ * 
  * If unset, all methods no-op (returns success for dev without Firebase).
  */
 let admin = null;
 
 function getAdmin() {
   if (admin != null) return admin;
+  
+  // Support both file path and direct private key environment variable
   const path = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  if (!path) {
-    console.warn('[firebase-admin] No FIREBASE_SERVICE_ACCOUNT_PATH or GOOGLE_APPLICATION_CREDENTIALS; password updates skipped.');
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const projectId = process.env.FIREBASE_PROJECT_ID;
+  
+  if (!path && !(privateKey && clientEmail && projectId)) {
+    console.warn('[firebase-admin] No Firebase credentials configured; password updates skipped.');
     return null;
   }
+  
   try {
-    const fs = require('fs');
-    const serviceAccount = JSON.parse(fs.readFileSync(path, 'utf8'));
+    let serviceAccount;
+    
+    if (path) {
+      // Load from file
+      const fs = require('fs');
+      serviceAccount = JSON.parse(fs.readFileSync(path, 'utf8'));
+    } else {
+      // Load from environment variables
+      serviceAccount = {
+        type: 'service_account',
+        project_id: projectId,
+        private_key: privateKey.replace(/\\n/g, '\n'),
+        client_email: clientEmail
+      };
+    }
+    
     admin = require('firebase-admin');
     if (!admin.apps.length) {
       admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
