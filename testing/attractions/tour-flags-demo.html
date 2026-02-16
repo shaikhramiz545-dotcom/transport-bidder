@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tour Flags Demo – TBidder</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; background: #f5f5dc; padding: 1.5rem; margin: 0; padding-bottom: 4rem; }
+    h1 { margin: 0 0 1rem; color: #1a1a1a; }
+    .tours-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.25rem; }
+    .tour-card {
+      background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+      border: 1px solid rgba(0,0,0,0.06);
+    }
+    .tour-card-image { position: relative; height: 160px; background: #e5e7eb; }
+    .tour-card-image img { width: 100%; height: 100%; object-fit: cover; }
+    .tour-flags { position: absolute; top: 0; left: 0; right: 0; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; z-index: 1; }
+    .tour-flag {
+      background: #0369a1; color: #fff; font-size: 0.75rem; font-weight: 600;
+      padding: 4px 8px; border-radius: 4px; max-width: 100%;
+    }
+    .tour-flag.new_arrival { background: #10b981; }
+    .tour-flag.most_selling { background: #7c3aed; }
+    .tour-flag.free_cancel { background: #059669; }
+    .tour-card-body { padding: 1rem; }
+    .tour-card-title { font-weight: 600; font-size: 1rem; margin: 0 0 0.5rem; line-height: 1.3; }
+    .tour-card-meta { font-size: 0.8rem; color: #6b7280; margin-bottom: 0.5rem; }
+    .tour-card-price { font-weight: 700; color: #FF5F00; font-size: 1.1rem; }
+    .error { color: #c00; padding: 1rem; background: #fee; border-radius: 8px; margin-bottom: 1rem; }
+    .loading { text-align: center; padding: 2rem; color: #666; }
+    .ticker-wrap {
+      position: fixed; bottom: 0; left: 0; right: 0; background: #10b981; color: #fff; padding: 10px 0;
+      overflow: hidden; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); z-index: 100;
+    }
+    .ticker { display: flex; animation: ticker 30s linear infinite; white-space: nowrap; }
+    .ticker span { padding-right: 3rem; font-size: 0.9rem; }
+    @keyframes ticker { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+  </style>
+</head>
+<body>
+  <h1>Tours with Flags (Demo)</h1>
+  <p style="color:#666; margin:0 0 1rem;">GET /api/tours returns flags + freeCancellation. Sort: revenue-based. Bottom ticker: random messages.</p>
+  <div id="root">
+    <div class="loading">Loading tours...</div>
+  </div>
+  <div id="ticker" class="ticker-wrap" style="display:none">
+    <div class="ticker" id="tickerInner"></div>
+  </div>
+  <script>
+    const API = 'http://localhost:4000/api';
+    Promise.all([fetch(API + '/tours').then(r=>r.json()), fetch(API + '/tours/ticker-messages').then(r=>r.json())])
+      .then(([toursData, tickerData]) => {
+        const root = document.getElementById('root');
+        if (toursData.tours && toursData.tours.length) {
+          root.innerHTML = '<div class="tours-grid">' + toursData.tours.map(t => {
+            const img = (t.thumbnailUrl || t.images?.[0]) ? `<img src="${t.thumbnailUrl || t.images[0]}" alt="">` : '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#9ca3af;">No image</div>';
+            const flags = (t.flags || []).slice(0, 3).map(f =>
+              `<span class="tour-flag ${f.type}">${f.text}</span>`
+            );
+            if (t.freeCancellation) flags.push('<span class="tour-flag free_cancel">Free cancellation</span>');
+            const flagsHtml = flags.slice(0, 3).join('');
+            return `
+              <div class="tour-card">
+                <div class="tour-card-image">${img}
+                  <div class="tour-flags">${flagsHtml}</div>
+                </div>
+                <div class="tour-card-body">
+                  <div class="tour-card-title">${t.title}</div>
+                  <div class="tour-card-meta">${t.city}, ${t.country} ${t.durationMins ? '• ' + t.durationMins + ' mins' : ''}</div>
+                  ${t.freeCancellation ? '<div class="tour-card-meta" style="color:#059669;font-weight:500">✓ Full refund if you cancel at least 24h in advance</div>' : ''}
+                  <div class="tour-card-price">From ${t.startingPrice != null ? t.startingPrice : '—'} ${t.currency || 'USD'}</div>
+                </div>
+              </div>
+            `;
+          }).join('') + '</div>';
+        } else {
+          root.innerHTML = '<p>No tours. Run seed: <code>cd backend && npm run seed:attractions</code></p>';
+        }
+        const msgs = tickerData.messages || [];
+        if (msgs.length) {
+          const tickerEl = document.getElementById('ticker');
+          const inner = document.getElementById('tickerInner');
+          inner.innerHTML = (msgs.map(m => '<span>' + m + '</span>').join('')) + (msgs.map(m => '<span>' + m + '</span>').join(''));
+          tickerEl.style.display = 'block';
+        }
+      })
+      .catch(err => {
+        document.getElementById('root').innerHTML = '<div class="error">Failed to load: ' + err.message + '. Ensure backend is running on :4000.</div>';
+      });
+  </script>
+</body>
+</html>

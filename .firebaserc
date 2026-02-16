@@ -1,0 +1,14 @@
+{
+  "projects": {
+    "default": "transport-bidder"
+  },
+  "targets": {
+    "transport-bidder": {
+      "hosting": {
+        "website": ["transport-bidder"],
+        "admin": ["tbidder-admin"],
+        "agency": ["tbidder-agency"]
+      }
+    }
+  }
+}

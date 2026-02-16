@@ -1,0 +1,19 @@
+.gcloudignore
+.git
+.gitignore
+
+# Flutter apps (not part of backend)
+driver_app/
+user_app/
+admin_panel/
+agency_portal/
+website/
+functions/
+testing/
+APK_RELEASES/
+deploy/
+docs/
+y/
+
+# Only include backend for deployment
+!backend/

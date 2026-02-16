@@ -1,0 +1,24 @@
+.login-logo-wrap {
+  text-align: center;
+  margin-bottom: 1rem;
+}
+.login-logo {
+  max-height: 64px;
+  width: auto;
+  object-fit: contain;
+}
+
+.login-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0.75rem;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 8px;
+  background: #fff;
+}
+.login-input-wrap:focus-within { border-color: #FF5F00; }
+.login-input-wrap .login-input { border: none; padding: 0.65rem 0; }
+.login-input-wrap .login-input:focus { box-shadow: none; }
+.login-icon { color: #666; flex-shrink: 0; }
+.login-input-wrap:focus-within .login-icon { color: #FF5F00; }

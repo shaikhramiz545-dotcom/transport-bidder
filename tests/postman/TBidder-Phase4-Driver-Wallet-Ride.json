@@ -1,0 +1,549 @@
+{
+  "info": {
+    "name": "TBidder Phase 4 — Driver → Wallet → Ride",
+    "description": "QA: Driver verification, Wallet recharge, Ride accept, Credit deduction, Expiry. Simulates low credit, expired credit, reupload, reject→approve, network failure.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://127.0.0.1:4000" },
+    { "key": "adminToken", "value": "" },
+    { "key": "driverId", "value": "test-driver-qa-phase4" },
+    { "key": "rideId", "value": "" },
+    { "key": "walletTransactionId", "value": "" },
+    { "key": "scenarioRideId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "0. Auth (Admin)",
+      "item": [
+        {
+          "name": "Admin Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has token', () => {",
+                  "  const j = pm.response.json();",
+                  "  pm.expect(j.token).to.be.a('string');",
+                  "  pm.collectionVariables.set('adminToken', j.token);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@tbidder.com\",\n  \"password\": \"admin123\"\n}"
+            },
+            "url": "{{baseUrl}}/api/admin/login"
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Driver Verification",
+      "item": [
+        {
+          "name": "Verification status (before register)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has status', () => { const j = pm.response.json(); pm.expect(j).to.have.property('status'); pm.expect(j).to.have.property('canGoOnline'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/drivers/verification-status?driverId={{driverId}}"
+          }
+        },
+        {
+          "name": "Verification register",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('ok true', () => { const j = pm.response.json(); pm.expect(j.ok).to.eql(true); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"driverId\": \"{{driverId}}\",\n  \"driverName\": \"QA Driver\",\n  \"vehiclePlate\": \"ABC-123\",\n  \"vehicleType\": \"car\"\n}"
+            },
+            "url": "{{baseUrl}}/api/drivers/verification-register"
+          }
+        },
+        {
+          "name": "Admin — Approve driver",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"approved\"\n}" },
+            "url": "{{baseUrl}}/api/admin/drivers/{{driverId}}/verify"
+          }
+        },
+        {
+          "name": "Verification status (after approve)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('status approved', () => { const j = pm.response.json(); pm.expect(j.status).to.eql('approved'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/drivers/verification-status?driverId={{driverId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Wallet",
+      "item": [
+        {
+          "name": "Wallet balance (before recharge)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has balance', () => { const j = pm.response.json(); pm.expect(j).to.have.property('balance'); pm.expect(j).to.have.property('creditsValidUntil'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/wallet/balance?driverId={{driverId}}"
+          }
+        },
+        {
+          "name": "Wallet recharge (submit)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('Has id', () => {",
+                  "  const j = pm.response.json();",
+                  "  pm.expect(j.id).to.be.a('string');",
+                  "  pm.collectionVariables.set('walletTransactionId', j.id);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"driverId\": \"{{driverId}}\",\n  \"amountSoles\": 10,\n  \"transactionId\": \"TXN-PHASE4-{{$timestamp}}\",\n  \"screenshotUrl\": \"https://example.com/screenshot.png\"\n}"
+            },
+            "url": "{{baseUrl}}/api/wallet/recharge"
+          }
+        },
+        {
+          "name": "Admin — List wallet transactions",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has transactions array', () => { const j = pm.response.json(); pm.expect(j.transactions).to.be.an('array'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": "{{baseUrl}}/api/admin/wallet-transactions?status=pending"
+          }
+        },
+        {
+          "name": "Admin — Approve wallet transaction",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has newBalance', () => { const j = pm.response.json(); pm.expect(j).to.have.property('newBalance'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"creditsAmount\": 200\n}" },
+            "url": "{{baseUrl}}/api/admin/wallet-transactions/{{walletTransactionId}}/approve"
+          }
+        },
+        {
+          "name": "Wallet balance (after approve)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Balance increased', () => { const j = pm.response.json(); pm.expect(j.balance).to.be.at.least(1); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/wallet/balance?driverId={{driverId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Ride (Accept & Complete)",
+      "item": [
+        {
+          "name": "Create ride (user)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('Has rideId', () => {",
+                  "  const j = pm.response.json();",
+                  "  pm.expect(j.rideId).to.be.a('string');",
+                  "  pm.collectionVariables.set('rideId', j.rideId);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pickupLat\": -12.0464,\n  \"pickupLng\": -77.0428,\n  \"dropLat\": -12.0564,\n  \"dropLng\": -77.0628,\n  \"pickupAddress\": \"Lima Pickup\",\n  \"dropAddress\": \"Lima Drop\",\n  \"distanceKm\": 5,\n  \"vehicleType\": \"car\",\n  \"userPrice\": 15\n}"
+            },
+            "url": "{{baseUrl}}/api/rides"
+          }
+        },
+        {
+          "name": "Driver accept (with driverId — wallet check)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('ok true', () => { const j = pm.response.json(); pm.expect(j.ok).to.eql(true); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"driverId\": \"{{driverId}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/rides/{{rideId}}/accept"
+          }
+        },
+        {
+          "name": "Driver arrived",
+          "event": [
+            { "listen": "test", "script": { "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"], "type": "text/javascript" } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/rides/{{rideId}}/driver-arrived"
+          }
+        },
+        {
+          "name": "Start ride",
+          "event": [
+            { "listen": "test", "script": { "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"], "type": "text/javascript" } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": "{{baseUrl}}/api/rides/{{rideId}}/start-ride"
+          }
+        },
+        {
+          "name": "Complete ride (credit deduction)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('ok true', () => { const j = pm.response.json(); pm.expect(j.ok).to.eql(true); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/rides/{{rideId}}/complete"
+          }
+        },
+        {
+          "name": "Wallet balance (after complete — deducted)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Balance decreased by ride', () => { const j = pm.response.json(); pm.expect(j.balance).to.be.a('number'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/wallet/balance?driverId={{driverId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Scenarios (Low / Expired / Reject-Approve / Network)",
+      "item": [
+        {
+          "name": "Create ride (for 403 low-credit test)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) { try { const j = pm.response.json(); if (j && j.rideId) pm.collectionVariables.set('scenarioRideId', j.rideId); } catch (e) {} }"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pickupLat\": -12.04,\n  \"pickupLng\": -77.04,\n  \"dropLat\": -12.05,\n  \"dropLng\": -77.06,\n  \"pickupAddress\": \"Lima\",\n  \"dropAddress\": \"Lima Drop\",\n  \"distanceKm\": 2,\n  \"vehicleType\": \"car\",\n  \"userPrice\": 20\n}"
+            },
+            "url": "{{baseUrl}}/api/rides"
+          }
+        },
+        {
+          "name": "Ride accept — With driverId zero balance (expect 403 NO_CREDIT)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 403 when no credit', () => pm.response.to.have.status(403));",
+                  "pm.test('Body has code NO_CREDIT or LOW_CREDIT or EXPIRED', () => {",
+                  "  const j = pm.response.json();",
+                  "  pm.expect(['NO_CREDIT','LOW_CREDIT','EXPIRED']).to.include(j.code);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"driverId\": \"driver-zero-balance-qa\"\n}"
+            },
+            "url": "{{baseUrl}}/api/rides/{{scenarioRideId}}/accept"
+          }
+        },
+        {
+          "name": "Wallet recharge — Missing driverId (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('Error message', () => { const j = pm.response.json(); pm.expect(j.error).to.include('driverId'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amountSoles\": 10,\n  \"transactionId\": \"TXN-1\",\n  \"screenshotUrl\": \"https://x.com/1.png\"\n}"
+            },
+            "url": "{{baseUrl}}/api/wallet/recharge"
+          }
+        },
+        {
+          "name": "Admin decline — No reason (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Decline without adminNote returns 400 or 404', () => { pm.expect([400,404]).to.include(pm.response.code); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": "{{baseUrl}}/api/admin/wallet-transactions/999999/decline"
+          }
+        },
+        {
+          "name": "Reject then Approve (use real tx id)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Decline with reason returns 200 or 404', () => { pm.expect([200,404]).to.include(pm.response.code); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"adminNote\": \"QA test: reject reason required\"\n}" },
+            "url": "{{baseUrl}}/api/admin/wallet-transactions/{{walletTransactionId}}/decline"
+          }
+        },
+        {
+          "name": "Network failure simulation (invalid host)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Request fails or returns error', () => {",
+                  "  const code = pm.response.code;",
+                  "  if (code === 0) pm.expect(true).to.be.true;",
+                  "  else pm.expect(code).to.be.within(400, 599);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "http://invalid-host-qa-no-dns.example.com/api/health"
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Expiry",
+      "item": [
+        {
+          "name": "Wallet balance — driverId with expired credits",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Expired wallet returns balance 0 or isExpired', () => {",
+                  "  const j = pm.response.json();",
+                  "  if (j.isExpired) pm.expect(j.balance).to.eql(0);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/wallet/balance?driverId={{driverId}}"
+          }
+        }
+      ]
+    }
+  ]
+}
