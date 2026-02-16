@@ -19,36 +19,48 @@ const FUTURE_TOLERANCE = 10 * 60 * 1000; // 10 minutes in ms
 router.use(authenticate);
 
 async function resolveAuthDriverId(req) {
-  // Try phone mapping first
+  // PRIMARY: Use Firebase Auth UID (single source of truth)
+  const authUid = req.auth?.userId || req.auth?.uid || req.auth?.sub;
+  if (authUid) {
+    const byAuthUid = await DriverVerification.findOne({ 
+      where: { authUid: String(authUid) }, 
+      attributes: ['driverId'], 
+      raw: true 
+    });
+    if (byAuthUid?.driverId) return String(byAuthUid.driverId);
+  }
+
+  // FALLBACK 1: Phone mapping (for existing drivers without authUid)
   const phone = req.auth?.phone ? String(req.auth.phone).trim() : '';
   if (phone) {
     const row = await DriverIdentity.findOne({ where: { phone }, raw: true });
-    if (row?.driverId) return String(row.driverId);
+    if (row?.driverId) {
+      // Backfill authUid if available
+      if (authUid) {
+        try { await DriverVerification.update({ authUid: String(authUid) }, { where: { driverId: row.driverId, authUid: null } }); } catch (_) {}
+      }
+      return String(row.driverId);
+    }
   }
-  // Fallback: look up by email in DriverVerification
+
+  // FALLBACK 2: Email + name matching (legacy support)
   const email = req.auth?.email ? String(req.auth.email).trim().toLowerCase() : '';
   if (email) {
     try {
-      // Get AppUser to verify name matches
       const appUser = await AppUser.findOne({ where: { email }, attributes: ['name', 'phone'], raw: true });
       if (appUser?.name) {
-        // Match by email AND name to prevent driverId reuse across different accounts
         const byEmail = await DriverVerification.findOne({ 
           where: { email, driverName: appUser.name }, 
           attributes: ['driverId'], 
           raw: true 
         });
         if (byEmail?.driverId) {
+          // Backfill authUid if available
+          if (authUid) {
+            try { await DriverVerification.update({ authUid: String(authUid) }, { where: { driverId: byEmail.driverId, authUid: null } }); } catch (_) {}
+          }
           if (phone) { try { await DriverIdentity.findOrCreate({ where: { phone }, defaults: { phone, driverId: byEmail.driverId } }); } catch (_) {} }
           return String(byEmail.driverId);
-        }
-        // Fallback: look up by driverName only (for cases where email is null in DriverVerification)
-        const byName = await DriverVerification.findOne({ where: { driverName: appUser.name }, attributes: ['driverId'], raw: true });
-        if (byName?.driverId) {
-          // Backfill email into DriverVerification for future direct lookups
-          try { await DriverVerification.update({ email }, { where: { driverId: byName.driverId } }); } catch (_) {}
-          if (phone) { try { await DriverIdentity.findOrCreate({ where: { phone }, defaults: { phone, driverId: byName.driverId } }); } catch (_) {} }
-          return String(byName.driverId);
         }
       }
     } catch (_) {}
@@ -834,6 +846,7 @@ router.post('/verification-register', requireRole('driver'), async (req, res) =>
     let nameChanged = false;
     let typeChanged = false;
 
+    const authUid = req.auth?.userId || req.auth?.uid || req.auth?.sub || null;
     try {
       const { row, created } = await db.findOrCreateDriverVerification(driverId, {
         status: 'pending',
@@ -846,9 +859,10 @@ router.post('/verification-register', requireRole('driver'), async (req, res) =>
         phone,
         license,
         photoUrl,
+        authUid: authUid ? String(authUid) : null,
       });
       if (created) {
-        console.log('[drivers] NEW DRIVER CREATED (Firestore):', { driverId, email, driverName });
+        console.log('[drivers] NEW DRIVER CREATED (Firestore):', { driverId, email, driverName, authUid });
       }
       usedFirestore = true;
       const wasApproved = row.status === 'approved';
@@ -939,6 +953,7 @@ router.post('/verification-register', requireRole('driver'), async (req, res) =>
         where: { driverId },
         defaults: {
           driverId,
+          authUid: authUid ? String(authUid) : null,
           status: finalStatus,
           vehicleType,
           vehiclePlate: vehiclePlate || null,
@@ -953,7 +968,7 @@ router.post('/verification-register', requireRole('driver'), async (req, res) =>
         },
       });
       if (pgCreated) {
-        console.log('[drivers] NEW DRIVER CREATED (PostgreSQL):', { driverId, email, driverName });
+        console.log('[drivers] NEW DRIVER CREATED (PostgreSQL):', { driverId, email, driverName, authUid });
       }
       const pgCurrentPlate = pgRow.vehiclePlate || null;
       const pgCurrentName = pgRow.driverName || null;

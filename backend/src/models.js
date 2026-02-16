@@ -53,6 +53,7 @@ const Message = sequelize.define('Message', {
 
 const DriverVerification = sequelize.define('DriverVerification', {
   driverId: { type: DataTypes.STRING, allowNull: false, unique: true },
+  authUid: { type: DataTypes.STRING, allowNull: true, unique: true }, // Firebase Auth UID - single source of truth for driver identity
   status: { type: DataTypes.STRING, allowNull: false, defaultValue: 'pending' }, // pending | approved | rejected | temp_blocked | suspended
   vehicleType: { type: DataTypes.STRING, allowNull: true, defaultValue: 'car' }, // car | bike | taxi | van | truck | ambulance
   vehiclePlate: { type: DataTypes.STRING, allowNull: true }, // for duplicate detection (same vehicle = temp_block)

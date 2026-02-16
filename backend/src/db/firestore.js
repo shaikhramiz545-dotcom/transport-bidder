@@ -867,6 +867,7 @@ async function findOrCreateDriverVerification(driverId, defaults = {}) {
   const now = _ts();
   const ref = await db.collection(COL.driver_verifications).add({
     driverId: String(driverId),
+    authUid: defaults.authUid || null,
     status: defaults.status || 'pending',
     vehicleType: defaults.vehicleType || 'car',
     vehiclePlate: defaults.vehiclePlate || null,
