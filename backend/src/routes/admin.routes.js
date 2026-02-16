@@ -937,7 +937,6 @@ router.get('/drivers', authMiddleware, async (_req, res) => {
 
     const driverIds = list.map((d) => d.driverId);
     const docCounts = {};
-    const photoByDriverId = {};
     if (driverIds.length > 0) {
       const docs = await DriverDocument.findAll({
         where: { driverId: driverIds },
@@ -950,10 +949,6 @@ router.get('/drivers', authMiddleware, async (_req, res) => {
         if (!seen[key]) {
           seen[key] = true;
           docCounts[doc.driverId] = (docCounts[doc.driverId] || 0) + 1;
-        }
-        // Keep selfie as driver photo for admin lists.
-        if (doc.documentType === 'selfie' && doc.fileUrl && !photoByDriverId[doc.driverId]) {
-          photoByDriverId[doc.driverId] = doc.fileUrl;
         }
       }
     }
@@ -1031,7 +1026,7 @@ router.get('/drivers', authMiddleware, async (_req, res) => {
         updatedAt: d.updatedAt,
         createdAt: d.createdAt,
         documentsCount: docCounts[d.driverId] || 0,
-        photoUrl: photoByDriverId[d.driverId] || d.photoUrl || null,
+        photoUrl: (d.photoUrl && d.photoUrl.trim()) || null,
         rating: ratingsByDriverId[d.driverId] ?? null,
       })),
     });
@@ -1061,7 +1056,7 @@ router.get('/drivers', authMiddleware, async (_req, res) => {
           phone: d.phone || null,
           updatedAt: d.updatedAt,
           documentsCount: 0,
-          photoUrl: d.photoUrl || null,
+          photoUrl: (d.photoUrl && d.photoUrl.trim()) || null,
           rating: null,
         })),
       });
@@ -1216,16 +1211,16 @@ router.get('/drivers/:id', authMiddleware, async (req, res) => {
 
         engineNumber: row.engineNumber || null,
         chassisNumber: row.chassisNumber || null,
-        selfieUrl: selfieUrl || row.photoUrl || null,
+        selfieUrl: row.photoUrl || selfieUrl || null,
         documentUrls: {
           ...docUrls,
-          selfie: selfieUrl || row.photoUrl || null,
-          selfieUrl: selfieUrl || row.photoUrl || null,
+          selfie: row.photoUrl || selfieUrl || null,
+          selfieUrl: row.photoUrl || selfieUrl || null,
         },
         soatIssueDate: soatDoc?.issueDate || null,
         soatExpiry: soatDoc?.expiryDate || null,
         updatedAt: row.updatedAt,
-        photoUrl: selfieUrl || row.photoUrl || null,
+        photoUrl: (row.photoUrl && row.photoUrl.trim()) || null,
         rating,
       },
     });
@@ -1274,8 +1269,8 @@ router.get('/drivers/:id', authMiddleware, async (req, res) => {
             brevete_frente: fsRow.breveteFrenteUrl || fsRow.brevete_frente_url || null,
             brevete_dorso: fsRow.breveteDorsoUrl || fsRow.brevete_dorso_url || null,
             dni: fsRow.dniUrl || fsRow.dni_url || null,
-            selfie: fsRow.selfieUrl || fsRow.photoUrl || null,
-            selfieUrl: fsRow.selfieUrl || fsRow.photoUrl || null,
+            selfie: fsRow.photoUrl || null,
+            selfieUrl: fsRow.photoUrl || null,
             soat: fsRow.soatUrl || fsRow.soat_url || null,
             tarjeta_propiedad: fsRow.tarjetaPropiedadUrl || fsRow.tarjeta_propiedad_url || null,
             foto_vehiculo: fsRow.fotoVehiculoUrl || fsRow.foto_vehiculo_url || null,
@@ -1283,7 +1278,7 @@ router.get('/drivers/:id', authMiddleware, async (req, res) => {
           soatIssueDate: fsRow.soatIssueDate || null,
           soatExpiry: fsRow.soatExpiry || null,
           updatedAt: fsRow.updatedAt,
-          photoUrl: fsRow.photoUrl || null,
+          photoUrl: (fsRow.photoUrl && fsRow.photoUrl.trim()) || null,
           rating: null,
         },
       });
