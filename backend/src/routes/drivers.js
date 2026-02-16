@@ -29,17 +29,20 @@ async function resolveAuthDriverId(req) {
   const email = req.auth?.email ? String(req.auth.email).trim().toLowerCase() : '';
   if (email) {
     try {
-      const byEmail = await DriverVerification.findOne({ where: { email }, attributes: ['driverId'], raw: true });
-      if (byEmail?.driverId) {
-        if (phone) { try { await DriverIdentity.findOrCreate({ where: { phone }, defaults: { phone, driverId: byEmail.driverId } }); } catch (_) {} }
-        return String(byEmail.driverId);
-      }
-    } catch (_) {}
-    // Fallback: look up AppUser by email to get name, then match DriverVerification by driverName
-    // This covers the case where DriverVerification.email is null but driverName matches AppUser.name
-    try {
+      // Get AppUser to verify name matches
       const appUser = await AppUser.findOne({ where: { email }, attributes: ['name', 'phone'], raw: true });
       if (appUser?.name) {
+        // Match by email AND name to prevent driverId reuse across different accounts
+        const byEmail = await DriverVerification.findOne({ 
+          where: { email, driverName: appUser.name }, 
+          attributes: ['driverId'], 
+          raw: true 
+        });
+        if (byEmail?.driverId) {
+          if (phone) { try { await DriverIdentity.findOrCreate({ where: { phone }, defaults: { phone, driverId: byEmail.driverId } }); } catch (_) {} }
+          return String(byEmail.driverId);
+        }
+        // Fallback: look up by driverName only (for cases where email is null in DriverVerification)
         const byName = await DriverVerification.findOne({ where: { driverName: appUser.name }, attributes: ['driverId'], raw: true });
         if (byName?.driverId) {
           // Backfill email into DriverVerification for future direct lookups
@@ -844,6 +847,9 @@ router.post('/verification-register', requireRole('driver'), async (req, res) =>
         license,
         photoUrl,
       });
+      if (created) {
+        console.log('[drivers] NEW DRIVER CREATED (Firestore):', { driverId, email, driverName });
+      }
       usedFirestore = true;
       const wasApproved = row.status === 'approved';
       const currentPlate = row.vehiclePlate || null;
@@ -946,6 +952,9 @@ router.post('/verification-register', requireRole('driver'), async (req, res) =>
           blockReason: null,
         },
       });
+      if (pgCreated) {
+        console.log('[drivers] NEW DRIVER CREATED (PostgreSQL):', { driverId, email, driverName });
+      }
       const pgCurrentPlate = pgRow.vehiclePlate || null;
       const pgCurrentName = pgRow.driverName || null;
       const pgCurrentType = pgRow.vehicleType || 'car';
