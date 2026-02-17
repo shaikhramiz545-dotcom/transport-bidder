@@ -7,7 +7,7 @@ const User = sequelize.define('User', {
   password: { type: DataTypes.STRING, allowNull: false },
   country: { type: DataTypes.STRING, defaultValue: 'PE' },
   currency: { type: DataTypes.STRING, defaultValue: 'PEN' },
-}, { timestamps: true });
+}, { timestamps: true, tableName: 'users' });
 
 const Ride = sequelize.define('Ride', {
   pickupLat: { type: DataTypes.DOUBLE, allowNull: false },
@@ -43,13 +43,13 @@ const Ride = sequelize.define('Ride', {
   deliveryComments: { type: DataTypes.TEXT, allowNull: true },
   deliveryWeight: { type: DataTypes.STRING, allowNull: true },
   deliveryPhotoUrl: { type: DataTypes.TEXT, allowNull: true },
-}, { timestamps: true });
+}, { timestamps: true, tableName: 'rides' });
 
 const Message = sequelize.define('Message', {
-  rideId: { type: DataTypes.INTEGER, allowNull: false },
+  rideId: { type: DataTypes.UUID, allowNull: false },
   from: { type: DataTypes.STRING, allowNull: false }, // 'user' | 'driver'
   text: { type: DataTypes.TEXT, allowNull: false },
-}, { timestamps: true, updatedAt: false });
+}, { timestamps: true, updatedAt: false, tableName: 'messages' });
 
 const DriverVerification = sequelize.define('DriverVerification', {
   driverId: { type: DataTypes.STRING, allowNull: false, unique: true },
