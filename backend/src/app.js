@@ -3,6 +3,15 @@ const path = require('path');
 const cors = require('cors');
 const trafficCounter = require('./utils/traffic-counter');
 const apiMetrics = require('./utils/api-metrics');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+
+// Middleware Imports
+const logger = require('./middleware/logger');
+const responseWrapper = require('./middleware/response-wrapper');
+const errorHandler = require('./middleware/error-handler');
+
+// Route Imports
 const healthRoutes = require('./routes/health');
 const authRoutes = require('./routes/auth.routes');
 const placesProxy = require('./routes/places.proxy');
@@ -17,18 +26,56 @@ const walletRoutes = require('./routes/wallet.routes');
 
 const app = express();
 
+// 1. Security Middleware (Helmet & Rate Limiting)
+app.use(helmet());
+
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: {
+      message: 'Too many requests, please try again later.',
+      code: 'RATE_LIMIT_EXCEEDED'
+    }
+  }
+});
+app.use(limiter);
+
+// 2. CORS Configuration
+const allowedOrigins = process.env.ALLOWED_ORIGINS 
+  ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()) 
+  : ['https://tbidder-admin.web.app', 'http://localhost:3000'];
+
 const corsOptions = {
-  origin: ['https://tbidder-admin.web.app', 'http://localhost:3000'],
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      // callback(new Error('Not allowed by CORS')); // Fail safely
+      callback(null, false);
+    }
+  },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-signature', 'x-dlocal-signature'],
   credentials: true,
 };
 
 app.options('*', cors(corsOptions));
 app.use(cors(corsOptions));
+
+// 3. Request Parsing
 // Screenshot base64 (wallet recharge) can be large – default 100kb too small
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// 4. Logging & Metrics
+app.use(logger);
+app.use(responseWrapper);
 
 app.use((req, res, next) => {
   const p = req.path || req.url.split('?')[0];
@@ -42,36 +89,35 @@ app.use((req, res, next) => {
   next();
 });
 
+// 5. Static Files
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
-app.use('/health', healthRoutes);
-app.use('/api/health', healthRoutes);
-app.use('/api/auth', authRoutes);
-app.use('/api/places', placesProxy);
-app.use('/api/directions', directionsRoutes);
-app.use('/api/drivers', driversRoutes);
-app.use('/api/rides', ridesRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/tours', toursRoutes);
-app.use('/api/agency', uploadRoutes); // upload first so /upload matches before /tours/:id
-app.use('/api/agency', agencyRoutes);
-app.use('/api/wallet', walletRoutes);
+// 6. API Routes (Versioned)
+const apiV1 = express.Router();
 
+apiV1.use('/health', healthRoutes);
+apiV1.use('/auth', authRoutes);
+apiV1.use('/places', placesProxy);
+apiV1.use('/directions', directionsRoutes);
+apiV1.use('/drivers', driversRoutes);
+apiV1.use('/rides', ridesRoutes);
+apiV1.use('/admin', adminRoutes);
+apiV1.use('/tours', toursRoutes);
+apiV1.use('/agency', uploadRoutes); // upload first so /upload matches before /tours/:id
+apiV1.use('/agency', agencyRoutes);
+apiV1.use('/wallet', walletRoutes);
+
+// Mount API v1
+app.use('/api/v1', apiV1);
+
+// Backward compatibility: Mount API v1 routes to /api
+app.use('/api', apiV1);
+
+// Root Route
 app.get('/', (_req, res) => {
   res.json({ status: 'online', message: 'Tbidder API is Live' });
 });
 
-// 404 for unknown API routes
-app.use('/api', (req, res) => {
-  res.status(404).json({ error: 'Not found', path: req.path });
-});
-
-// Central error handler: unhandled rejections in route handlers should be caught by each route;
-// this catches any thrown errors from middleware and sends consistent JSON
-app.use((err, req, res, next) => {
-  console.error('[app] error', err.message || err);
-  if (res.headersSent) return next(err);
-  res.status(500).json({ error: 'Internal server error', message: err.message || 'Something went wrong' });
-});
+// 404 and Error handlers are now in server.js to allow route injection
 
 module.exports = app;

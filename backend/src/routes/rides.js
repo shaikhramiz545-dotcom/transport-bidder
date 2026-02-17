@@ -164,6 +164,12 @@ router.post('/', requireRole('passenger'), async (req, res) => {
 
     return res.status(201).json({ rideId: String(rideId) });
   } catch (err) {
+    // Single-active-ride: return existing ride ID so frontend can reconnect
+    if (err.message && err.message.startsWith('ACTIVE_RIDE_EXISTS:')) {
+      const existingRideId = err.message.split(':')[1];
+      console.warn('[rides] create blocked – active ride exists:', existingRideId);
+      return res.status(409).json({ error: 'ACTIVE_RIDE_EXISTS', existingRideId });
+    }
     console.error('[rides] create', err.message);
     return res.status(500).json({ error: err.message });
   }
@@ -200,6 +206,8 @@ router.get('/:id', async (req, res) => {
       userPrice: ride.userPrice,
       counterPrice: ride.counterPrice,
       acceptedBidId: ride.acceptedBidId || null,
+      driverName: ride.driverName || null,
+      acceptedPrice: ride.acceptedPrice || null,
       userPhone: ride.userPhone,
       driverPhone: ride.driverPhone,
       userRating: ride.userRating,
@@ -462,6 +470,33 @@ router.post('/:id/counter', requireRole('driver'), async (req, res) => {
     return res.json({ ok: true });
   } catch (err) {
     console.error('[rides] counter', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/** POST /api/rides/:id/cancel – User app: cancel a pending/accepted ride.
+ * Expires the ride and all associated bids atomically. Only the ride owner can cancel. */
+router.post('/:id/cancel', requireRole('passenger'), async (req, res) => {
+  try {
+    const rideId = req.params.id;
+    const userPhone = req.auth?.phone ? String(req.auth.phone).trim() : '';
+    const ride = await db.getRideById(rideId);
+    if (!ride) return res.status(404).json({ error: 'Ride not found' });
+    if (ride.userPhone && userPhone && String(ride.userPhone).trim() !== userPhone) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const cancellableStatuses = ['pending', 'accepted'];
+    if (!cancellableStatuses.includes(ride.status)) {
+      return res.status(400).json({ error: `Cannot cancel ride in ${ride.status} status` });
+    }
+    if (ride.status === 'pending') {
+      await db.expireRideAndBids(rideId);
+    } else {
+      await db.updateRide(rideId, { status: 'cancelled' });
+    }
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[rides] cancel', err.message);
     return res.status(500).json({ error: err.message });
   }
 });

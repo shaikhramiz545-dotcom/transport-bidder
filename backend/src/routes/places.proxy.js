@@ -3,7 +3,13 @@ const https = require('https');
 const axios = require('axios');
 
 const router = express.Router();
-const GOOGLE_API_KEY = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_API_KEY || 'YOUR_GOOGLE_MAPS_API_KEY';
+
+/** Read API key at request time — NOT module load — so Cloud Run env updates take effect */
+function getGoogleApiKey() {
+  const key = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_API_KEY || '';
+  if (!key) console.warn('[places proxy] GOOGLE_MAPS_API_KEY is not set');
+  return key;
+}
 
 /**
  * Proxy Places Autocomplete - avoids CORS on Flutter Web.
@@ -15,9 +21,13 @@ router.get('/autocomplete', async (req, res) => {
     if (!input || typeof input !== 'string') {
       return res.status(400).json({ status: 'INVALID_REQUEST', predictions: [] });
     }
+    const apiKey = getGoogleApiKey();
+    if (!apiKey) {
+      return res.status(503).json({ status: 'ERROR', error: 'Google Maps API key not configured' });
+    }
     const params = new URLSearchParams({
       input: input.trim(),
-      key: GOOGLE_API_KEY,
+      key: apiKey,
       language: 'es',
     });
     if (sessiontoken) params.set('sessiontoken', sessiontoken);
@@ -39,9 +49,13 @@ router.get('/details', (req, res) => {
   if (!place_id) {
     return res.status(400).json({ status: 'INVALID_REQUEST' });
   }
+  const apiKey = getGoogleApiKey();
+  if (!apiKey) {
+    return res.status(503).json({ status: 'ERROR', error: 'Google Maps API key not configured' });
+  }
   const params = new URLSearchParams({
     place_id,
-    key: GOOGLE_API_KEY,
+    key: apiKey,
     fields: 'geometry',
     language: 'es',
   });

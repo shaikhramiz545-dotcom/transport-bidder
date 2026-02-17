@@ -88,11 +88,17 @@ function _docToObject(snap) {
 }
 
 function _stableDriverIdFromPhone(phone) {
-  // Driver ID must be stable per driver. We derive it from the phone so it never changes.
-  // Format: DRV-XXXXX where XXXXX are last 5 digits of the phone number.
+  // SECURITY FIX: Use SHA-256 hash of full phone digits to prevent ID collisions.
+  // Old code used only last 5 digits → only 100K possible IDs → catastrophic collisions.
+  // New code: SHA-256(full_digits) → first 12 hex chars → 281 trillion possible IDs.
+  const crypto = require('crypto');
   const digits = String(phone || '').replace(/\D/g, '');
-  const last5 = digits.slice(-5).padStart(5, '0');
-  return `DRV-${last5}`;
+  if (!digits || digits.length < 7) {
+    // Fallback: cryptographically random ID for invalid/short phone numbers
+    return `DRV-${crypto.randomBytes(6).toString('hex')}`;
+  }
+  const hash = crypto.createHash('sha256').update(digits).digest('hex');
+  return `DRV-${hash.slice(0, 12)}`;
 }
 
 /**
@@ -316,6 +322,36 @@ function _rideToJson(doc) {
 async function createRide(data) {
   const db = getDb();
   if (!db) throw new Error('Firestore not configured');
+
+  // Single-active-ride enforcement: prevent duplicate rides per user.
+  // Check if user already has a pending/accepted/driver_arrived/ride_started ride.
+  const userPhone = data.userPhone || null;
+  if (userPhone) {
+    const activeStatuses = [RIDE_STATUS.PENDING, RIDE_STATUS.ACCEPTED, RIDE_STATUS.DRIVER_ARRIVED, RIDE_STATUS.RIDE_STARTED];
+    const existingSnap = await db.collection(COL.rides)
+      .where('userPhone', '==', userPhone)
+      .where('status', 'in', activeStatuses)
+      .limit(1)
+      .get();
+    if (!existingSnap.empty) {
+      const existingRide = existingSnap.docs[0];
+      const existingData = existingRide.data();
+      // Auto-expire stale pending rides older than RIDE_EXPIRY_MINUTES
+      if (existingData.status === RIDE_STATUS.PENDING) {
+        const createdAt = existingData.createdAt?.toDate?.() || existingData.createdAt;
+        const ageMs = Date.now() - new Date(createdAt).getTime();
+        if (ageMs > RIDE_EXPIRY_MINUTES * 60 * 1000) {
+          // Stale pending ride — expire it and allow new ride creation
+          try { await expireRideAndBids(existingRide.id); } catch (_) {}
+        } else {
+          throw new Error('ACTIVE_RIDE_EXISTS:' + existingRide.id);
+        }
+      } else {
+        throw new Error('ACTIVE_RIDE_EXISTS:' + existingRide.id);
+      }
+    }
+  }
+
   const now = _ts();
   const doc = {
     pickupLat: data.pickupLat,
@@ -328,7 +364,7 @@ async function createRide(data) {
     trafficDelayMins: data.trafficDelayMins ?? 0,
     vehicleType: data.vehicleType || 'car',
     userPrice: data.userPrice ?? 0,
-    userPhone: data.userPhone || null,
+    userPhone: userPhone,
     userRating: data.userRating ?? null,
     userPhotoUrl: data.userPhotoUrl || null,
     // Outstation fields

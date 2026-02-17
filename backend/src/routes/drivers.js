@@ -283,13 +283,12 @@ function getRadiusForVehicle(driverVehicleCategory) {
 const BYPASS_DRIVER_VERIFICATION = String(process.env.BYPASS_DRIVER_VERIFICATION || '').toLowerCase() === 'true';
 
 // NOTE: Short, human-readable driver id when client doesn't send one.
-// Format: d-12345 (5–7 digits). This keeps existing API field (driverId) intact,
-// but avoids very long random IDs in Admin and logs.
+// SECURITY FIX: Use crypto.randomBytes instead of Math.random to avoid predictable/colliding IDs.
+// Format: d-<8 hex chars> (4 billion possible values, cryptographically random).
 function generateShortDriverId() {
-  const min = 10000; // 5 digits
-  const max = 9999999; // up to 7 digits
-  const n = Math.floor(min + Math.random() * (max - min));
-  return `d-${n}`;
+  const crypto = require('crypto');
+  const hex = crypto.randomBytes(4).toString('hex');
+  return `d-${hex}`;
 }
 
 /** For control panel: count drivers that reported location in last DRIVER_STALE_MS. */
@@ -462,15 +461,27 @@ router.post('/location', requireRole('driver'), async (req, res) => {
   }
 
   // Keep phone -> driverId mapping stable for future restores.
+  // SECURITY FIX: Never overwrite an existing phone→driverId mapping to prevent collision exploitation.
   if (incomingPhone) {
     try {
-      const byDriverId = await DriverIdentity.findOne({ where: { driverId: id } });
-      if (byDriverId) {
-        if (byDriverId.phone !== incomingPhone) {
-          await byDriverId.update({ phone: incomingPhone });
+      const byPhone = await DriverIdentity.findOne({ where: { phone: incomingPhone } });
+      if (byPhone) {
+        // Phone already mapped — do NOT overwrite, just verify consistency
+        if (byPhone.driverId !== id) {
+          console.warn('[drivers][SECURITY] phone->driverId mismatch, refusing overwrite', {
+            phone: incomingPhone, existingDriverId: byPhone.driverId, requestedDriverId: id,
+          });
         }
       } else {
-        await DriverIdentity.create({ phone: incomingPhone, driverId: id });
+        // No mapping exists — safe to create, but verify driverId isn't already mapped to another phone
+        const byDriverId = await DriverIdentity.findOne({ where: { driverId: id } });
+        if (byDriverId) {
+          console.warn('[drivers][SECURITY] driverId already mapped to different phone, refusing create', {
+            driverId: id, existingPhone: byDriverId.phone, requestedPhone: incomingPhone,
+          });
+        } else {
+          await DriverIdentity.create({ phone: incomingPhone, driverId: id });
+        }
       }
     } catch (err) {
       console.warn('[drivers] identity save skipped:', err.message);
@@ -900,6 +911,40 @@ router.post('/verification-register', requireRole('driver'), async (req, res) =>
             duplicateAccount: true,
             status: 'temp_blocked',
             message: 'Duplicate account found. Please contact customer service.',
+          });
+        }
+      }
+
+      // NEW: Check for duplicate DNI
+      if (hasDni && dni) {
+        // Check PostgreSQL (Source of Truth)
+        const existingDni = await DriverVerification.findOne({ where: { dni } });
+        if (existingDni && existingDni.driverId !== driverId) {
+          return res.status(400).json({
+            ok: false,
+            message: 'DNI already registered by another driver.',
+          });
+        }
+      }
+
+      // NEW: Check for duplicate License
+      if (hasLicense && license) {
+        const existingLicense = await DriverVerification.findOne({ where: { license } });
+        if (existingLicense && existingLicense.driverId !== driverId) {
+          return res.status(400).json({
+            ok: false,
+            message: 'License number already registered by another driver.',
+          });
+        }
+      }
+
+      // NEW: Check for duplicate Email
+      if (hasEmail && email) {
+        const existingEmail = await DriverVerification.findOne({ where: { email } });
+        if (existingEmail && existingEmail.driverId !== driverId) {
+          return res.status(400).json({
+            ok: false,
+            message: 'Email already registered by another driver.',
           });
         }
       }

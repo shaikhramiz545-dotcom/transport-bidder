@@ -1,54 +1,16 @@
+const { admin, db } = require('../config/firebase');
+
 /**
  * Firebase Admin SDK – used to update user passwords on reset (user & driver app).
  * 
- * Environment Variable Options:
- * 1. FIREBASE_SERVICE_ACCOUNT_PATH or GOOGLE_APPLICATION_CREDENTIALS - Path to service account JSON file
- * 2. FIREBASE_PRIVATE_KEY + FIREBASE_CLIENT_EMAIL + FIREBASE_PROJECT_ID - Direct credentials
- * 
- * If unset, all methods no-op (returns success for dev without Firebase).
+ * Now uses the centralized configuration from src/config/firebase.js
  */
-let admin = null;
 
 function getAdmin() {
-  if (admin != null) return admin;
-  
-  // Support both file path and direct private key environment variable
-  const path = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  const privateKey = process.env.FIREBASE_PRIVATE_KEY;
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const projectId = process.env.FIREBASE_PROJECT_ID;
-  
-  if (!path && !(privateKey && clientEmail && projectId)) {
-    console.warn('[firebase-admin] No Firebase credentials configured; password updates skipped.');
-    return null;
-  }
-  
-  try {
-    let serviceAccount;
-    
-    if (path) {
-      // Load from file
-      const fs = require('fs');
-      serviceAccount = JSON.parse(fs.readFileSync(path, 'utf8'));
-    } else {
-      // Load from environment variables
-      serviceAccount = {
-        type: 'service_account',
-        project_id: projectId,
-        private_key: privateKey.replace(/\\n/g, '\n'),
-        client_email: clientEmail
-      };
-    }
-    
-    admin = require('firebase-admin');
-    if (!admin.apps.length) {
-      admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
-    }
+  if (admin && admin.apps.length) {
     return admin;
-  } catch (err) {
-    console.error('[firebase-admin] Init failed:', err.message);
-    return null;
   }
+  return null;
 }
 
 /**
@@ -82,9 +44,7 @@ async function updateUserPassword(email, newPassword) {
 
 /** Get Firestore instance (same project as Auth). Required for backend DB. */
 function getFirestore() {
-  const a = getAdmin();
-  if (!a) return null;
-  return a.firestore();
+  return db;
 }
 
 /** Get Firebase Cloud Messaging instance. Returns null when Admin SDK not configured. */

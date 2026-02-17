@@ -10,14 +10,40 @@ const { authenticate, requireRole } = require('../utils/auth');
 const router = express.Router();
 
 async function resolveAuthDriverId(req) {
+  // SECURITY: Resolve driverId from authenticated phone via DriverIdentity mapping.
+  // This prevents client-supplied driverId from accessing another driver's wallet.
   const phone = req.auth?.phone ? String(req.auth.phone).trim() : '';
   if (!phone) return null;
   const row = await DriverIdentity.findOne({ where: { phone }, raw: true });
   return row?.driverId ? String(row.driverId) : null;
 }
 
+/** SECURITY: Enforce that authenticated driver can only access their own wallet data. */
+function enforceWalletOwnership(req, res, next) {
+  const authDriverId = req._authDriverId; // set by middleware below
+  const requestedDriverId = (req.body?.driverId || req.query?.driverId || '').trim();
+  if (authDriverId && requestedDriverId && requestedDriverId !== authDriverId) {
+    console.warn('[wallet][SECURITY] Ownership violation attempt', {
+      authDriverId, requestedDriverId, ip: req.ip, path: req.path,
+      phone: req.auth?.phone || 'unknown',
+    });
+    return res.status(403).json({ error: 'Forbidden: ownership mismatch' });
+  }
+  next();
+}
+
 // All wallet endpoints are driver-only
 router.use(authenticate, requireRole('driver'));
+
+// Pre-resolve driverId for ownership checks
+router.use(async (req, res, next) => {
+  try {
+    req._authDriverId = await resolveAuthDriverId(req);
+  } catch (_) { req._authDriverId = null; }
+  next();
+});
+
+router.use(enforceWalletOwnership);
 
 /** GET /api/wallet/balance?driverId=xxx – Driver: current credits. Credits valid 1 year; if expired, balance = 0. */
 router.get('/balance', async (req, res) => {

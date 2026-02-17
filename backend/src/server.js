@@ -2,65 +2,11 @@ const http = require('http');
 const { Server } = require('socket.io');
 const app = require('./app');
 const config = require('./config');
-const { sequelize } = require('./config/db');
+const errorHandler = require('./middleware/error-handler');
+const { db: firestoreDb } = require('./config/firebase');
 
-// Safe startup migration: add missing columns to existing tables (idempotent)
-async function runStartupMigrations() {
-  try {
-    const qi = sequelize.getQueryInterface();
-    const addCol = async (table, col, type) => {
-      try {
-        await qi.addColumn(table, col, type);
-        console.log(`[Migration] Added column ${table}.${col}`);
-      } catch (e) {
-        if (e.original && e.original.code === '42701') return; // column already exists
-        console.warn(`[Migration] ${table}.${col} skipped:`, e.message);
-      }
-    };
-    const { DataTypes } = require('sequelize');
-    // DriverDocuments: metadata columns added in model but missing from DB
-    await addCol('DriverDocuments', 'issueDate', { type: DataTypes.DATEONLY, allowNull: true });
-    await addCol('DriverDocuments', 'policyNumber', { type: DataTypes.STRING, allowNull: true });
-    await addCol('DriverDocuments', 'insuranceCompany', { type: DataTypes.STRING, allowNull: true });
-    await addCol('DriverDocuments', 'certificateNumber', { type: DataTypes.STRING, allowNull: true });
-    await addCol('DriverDocuments', 'inspectionCenter', { type: DataTypes.STRING, allowNull: true });
-
-    // DriverVerifications: vehicle + license + DNI fields added in model but missing from DB
-    await addCol('DriverVerifications', 'email', { type: DataTypes.STRING, allowNull: true });
-    await addCol('DriverVerifications', 'city', { type: DataTypes.STRING, allowNull: true });
-    await addCol('DriverVerifications', 'dni', { type: DataTypes.STRING, allowNull: true });
-    await addCol('DriverVerifications', 'phone', { type: DataTypes.STRING, allowNull: true });
-    await addCol('DriverVerifications', 'license', { type: DataTypes.STRING, allowNull: true });
-    await addCol('DriverVerifications', 'photoUrl', { type: DataTypes.STRING, allowNull: true });
-    await addCol('DriverVerifications', 'adminNotes', { type: DataTypes.TEXT, allowNull: true });
-    await addCol('DriverVerifications', 'customRatePerKm', { type: DataTypes.DOUBLE, allowNull: true });
-
-    await addCol('DriverVerifications', 'vehicleBrand', { type: DataTypes.STRING, allowNull: true });
-    await addCol('DriverVerifications', 'vehicleModel', { type: DataTypes.STRING, allowNull: true });
-    await addCol('DriverVerifications', 'vehicleColor', { type: DataTypes.STRING, allowNull: true });
-    await addCol('DriverVerifications', 'registrationYear', { type: DataTypes.INTEGER, allowNull: true });
-    await addCol('DriverVerifications', 'vehicleCapacity', { type: DataTypes.INTEGER, allowNull: true });
-
-    await addCol('DriverVerifications', 'licenseClass', { type: DataTypes.STRING, allowNull: true });
-    await addCol('DriverVerifications', 'licenseIssueDate', { type: DataTypes.DATEONLY, allowNull: true });
-    await addCol('DriverVerifications', 'licenseExpiryDate', { type: DataTypes.DATEONLY, allowNull: true });
-
-    await addCol('DriverVerifications', 'dniIssueDate', { type: DataTypes.DATEONLY, allowNull: true });
-    await addCol('DriverVerifications', 'dniExpiryDate', { type: DataTypes.DATEONLY, allowNull: true });
-
-    await addCol('DriverVerifications', 'engineNumber', { type: DataTypes.STRING, allowNull: true });
-    await addCol('DriverVerifications', 'chassisNumber', { type: DataTypes.STRING, allowNull: true });
-
-    await addCol('DriverVerifications', 'registrationStartedAt', { type: DataTypes.DATE, allowNull: true });
-    await addCol('DriverVerifications', 'registrationDeadline', { type: DataTypes.DATE, allowNull: true });
-
-    await addCol('DriverVerifications', 'reuploadMessage', { type: DataTypes.TEXT, allowNull: true });
-    console.log('[Migration] Startup migrations complete.');
-  } catch (err) {
-    console.error('[Migration] Startup migration error:', err.message);
-  }
-}
-runStartupMigrations();
+// NOTE: Startup migrations have been moved to scripts/migrate.js
+// Run `npm run migrate` to apply schema changes.
 
 const server = http.createServer(app);
 
@@ -89,6 +35,31 @@ if (getFirestore()) {
   console.warn('⚠️ Firestore not configured. Set FIREBASE_SERVICE_ACCOUNT_PATH in .env for auth/rides/drivers.');
 }
 
+// New Firestore Test Route
+app.get('/test-firestore', async (req, res, next) => {
+  try {
+    const docRef = firestoreDb.collection('healthcheck').doc();
+    await docRef.set({
+      message: 'Firestore connected via env vars',
+      timestamp: new Date().toISOString()
+    });
+    res.status(200).json({ success: true, docId: docRef.id });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 404 Handler
+app.use((req, res, next) => {
+  if (res.jsonError) {
+    return res.jsonError('Not found', 'NOT_FOUND', 404);
+  }
+  res.status(404).json({ error: 'Not found', path: req.path });
+});
+
+// Global Error Handler
+app.use(errorHandler);
+
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     console.error(`❌ Port ${config.port} is already in use.`);
@@ -98,7 +69,39 @@ server.on('error', (err) => {
   }
   process.exitCode = 1;
 });
+
 server.listen(config.port, () => {
   console.log(`🚀 [Tbidder] API listening on port ${config.port}`);
   console.log(`🔗 [Tbidder] Health check: /health`);
 });
+
+// Stale ride cleanup: expire pending rides older than RIDE_EXPIRY_MINUTES every 5 minutes
+const db = require('./db/firestore');
+const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+async function cleanupStaleRides() {
+  try {
+    const fdb = db.getDb();
+    if (!fdb) return;
+    const expiryMs = db.RIDE_EXPIRY_MINUTES * 60 * 1000;
+    const cutoff = new Date(Date.now() - expiryMs);
+    const snap = await fdb.collection(db.COL.rides)
+      .where('status', '==', db.RIDE_STATUS.PENDING)
+      .where('createdAt', '<', cutoff)
+      .limit(20)
+      .get();
+    if (snap.empty) return;
+    let expired = 0;
+    for (const doc of snap.docs) {
+      try {
+        await db.expireRideAndBids(doc.id);
+        expired++;
+      } catch (_) {}
+    }
+    if (expired > 0) console.log(`[Cleanup] Expired ${expired} stale pending rides`);
+  } catch (err) {
+    console.warn('[Cleanup] stale ride cleanup error:', err.message);
+  }
+}
+setInterval(cleanupStaleRides, CLEANUP_INTERVAL_MS);
+// Run once on startup after a short delay
+setTimeout(cleanupStaleRides, 10000);

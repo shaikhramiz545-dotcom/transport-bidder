@@ -6,7 +6,11 @@ const express = require('express');
 const axios = require('axios');
 
 const router = express.Router();
-const GOOGLE_API_KEY = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_API_KEY || 'YOUR_GOOGLE_MAPS_API_KEY';
+
+/** Read API key at request time — NOT module load — so Cloud Run env updates take effect */
+function getGoogleApiKey() {
+  return process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_API_KEY || '';
+}
 
 router.get('/', async (req, res) => {
   try {
@@ -14,10 +18,11 @@ router.get('/', async (req, res) => {
     if (!origin || !destination) {
       return res.status(400).json({ status: 'INVALID_REQUEST', error: 'origin and destination required' });
     }
-    if (!GOOGLE_API_KEY) {
+    const apiKey = getGoogleApiKey();
+    if (!apiKey) {
       return res.status(503).json({ status: 'ERROR', error: 'Directions API key not configured' });
     }
-    const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&mode=driving&key=${GOOGLE_API_KEY}`;
+    const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&mode=driving&key=${apiKey}`;
     const response = await axios.get(url);
     res.json(response.data);
   } catch (e) {

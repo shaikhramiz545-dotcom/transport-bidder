@@ -226,7 +226,13 @@ router.get('/health-status', authMiddleware, async (req, res) => {
   result.services.msg91 = { configured: msg91Configured, ok: msg91Configured, msg: msg91Configured ? 'OK' : 'MSG91_AUTH_KEY not set' };
 
   // External: Places & Directions
-  const googleKey = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_API_KEY || '';
+  const googleKeyRaw = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_API_KEY || '';
+  const googleKey = googleKeyRaw.trim();
+  console.log('[health-status] Google Maps API Key present:', !!googleKey);
+  console.log('[health-status] MAPS KEY LENGTH:', googleKey.length);
+  console.log('[health-status] MAPS KEY PREFIX:', googleKey.substring(0, 8) + '...');
+  console.log('[health-status] MAPS KEY HAS WHITESPACE:', googleKey !== googleKey.trim());
+  console.log('[health-status] MAPS KEY SOURCE:', process.env.GOOGLE_MAPS_API_KEY ? 'GOOGLE_MAPS_API_KEY' : process.env.GOOGLE_API_KEY ? 'GOOGLE_API_KEY' : 'NONE');
   try {
     if (!googleKey) {
       result.services.places = false;
@@ -236,9 +242,13 @@ router.get('/health-status', authMiddleware, async (req, res) => {
         `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=Lima&key=${googleKey}&language=es&components=country:pe`,
         { timeout: 8000 }
       );
+      console.log('[health-status] Places API response status:', r.data?.status);
+      if (r.data?.error_message) console.log('[health-status] Places API error_message:', r.data.error_message);
       result.services.places = r.data?.status === 'OK' || r.data?.status === 'ZERO_RESULTS';
+      if (!result.services.places) result.services.placesMsg = r.data?.error_message || r.data?.status;
     }
   } catch (e) {
+    console.error('[health-status] Places API error:', e.message);
     result.services.places = false;
     result.services.placesMsg = e.message || 'Request failed';
   }
@@ -251,9 +261,13 @@ router.get('/health-status', authMiddleware, async (req, res) => {
         `https://maps.googleapis.com/maps/api/directions/json?origin=-12.0,-77.0&destination=-12.1,-77.1&mode=driving&key=${googleKey}`,
         { timeout: 8000 }
       );
+      console.log('[health-status] Directions API response status:', r.data?.status);
+      if (r.data?.error_message) console.log('[health-status] Directions API error_message:', r.data.error_message);
       result.services.directions = r.data?.status === 'OK';
+      if (!result.services.directions) result.services.directionsMsg = r.data?.error_message || r.data?.status;
     }
   } catch (e) {
+    console.error('[health-status] Directions API error:', e.message);
     result.services.directions = false;
     result.services.directionsMsg = e.message || 'Request failed';
   }
@@ -348,13 +362,20 @@ router.get('/health-status', authMiddleware, async (req, res) => {
 
   // Payment gateway (dLocal)
   try {
-    if (!dlocal.isConfigured()) {
-      result.services.paymentGateway = { configured: false, ok: null, msg: 'Not configured' };
+    const dlocalConfigured = dlocal.isConfigured();
+    console.log('[health-status] dLocal configured:', dlocalConfigured);
+    console.log('[health-status] DLOCAL_API_KEY present:', !!process.env.DLOCAL_API_KEY, 'len:', (process.env.DLOCAL_API_KEY || '').length);
+    console.log('[health-status] DLOCAL_SECRET_KEY present:', !!process.env.DLOCAL_SECRET_KEY, 'len:', (process.env.DLOCAL_SECRET_KEY || '').length);
+    console.log('[health-status] DLOCAL_SANDBOX:', process.env.DLOCAL_SANDBOX);
+    if (!dlocalConfigured) {
+      result.services.paymentGateway = { configured: false, ok: null, msg: 'DLOCAL_API_KEY or DLOCAL_SECRET_KEY missing from environment' };
     } else {
       const pingRes = await axios.get(dlocal.getBaseUrl(), { timeout: 5000, validateStatus: () => true });
+      console.log('[health-status] dLocal ping status:', pingRes.status);
       result.services.paymentGateway = { configured: true, ok: pingRes.status < 500, msg: pingRes.status < 500 ? 'OK' : `HTTP ${pingRes.status}` };
     }
   } catch (e) {
+    console.error('[health-status] dLocal error:', e.message);
     result.services.paymentGateway = { configured: dlocal.isConfigured(), ok: false, msg: e.message || 'Unreachable' };
   }
 
@@ -1570,6 +1591,52 @@ router.post('/drivers/:id/verify', authMiddleware, async (req, res) => {
   }
 });
 
+/** POST /api/admin/drivers/:id/documents/:docId/verify – Verify single document. */
+router.post('/drivers/:id/documents/:docId/verify', authMiddleware, async (req, res) => {
+  try {
+    const { id, docId } = req.params;
+    const { status, feedback } = req.body;
+
+    if (!['approved', 'rejected'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status. Use approved or rejected.' });
+    }
+
+    const doc = await DriverDocument.findOne({ where: { id: docId, driverId: id } });
+    if (!doc) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    await doc.update({
+      status,
+      adminFeedback: feedback || null
+    });
+
+    // Check if all required documents are approved
+    const requiredTypes = ['brevete_frente', 'brevete_dorso', 'dni', 'selfie', 'soat', 'tarjeta_propiedad', 'foto_vehiculo'];
+    const allDocs = await DriverDocument.findAll({ where: { driverId: id } });
+    
+    // Map latest status for each document type
+    const docStatusMap = {};
+    allDocs.forEach(d => {
+      // If multiple docs of same type (history), considering the one we just updated or the latest one
+      // Ideally we should filter by latest per type, but assuming clean state for now or just checking this doc.
+      // Better: check if we have at least one approved doc for each required type.
+       if (d.status === 'approved') {
+         docStatusMap[d.documentType] = true;
+       }
+    });
+
+    // We can optionally auto-approve the driver if all docs are approved, 
+    // BUT usually admin wants final manual sign-off. 
+    // So we just return success.
+
+    return res.json({ ok: true, status, feedback });
+  } catch (err) {
+    console.error('[admin] verify document', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 /** POST /api/admin/drivers/:id/request-reupload – Request driver to re-upload specific documents. Body: { documentTypes: string[], message?: string }. */
 router.post('/drivers/:id/request-reupload', authMiddleware, async (req, res) => {
   try {
@@ -1633,6 +1700,8 @@ router.get('/drivers/:id/documents', authMiddleware, async (req, res) => {
         'insuranceCompany',
         'certificateNumber',
         'inspectionCenter',
+        'status',
+        'adminFeedback',
         'createdAt',
       ],
       raw: true,
@@ -1649,6 +1718,8 @@ router.get('/drivers/:id/documents', authMiddleware, async (req, res) => {
         insuranceCompany: d.insuranceCompany || null,
         certificateNumber: d.certificateNumber || null,
         inspectionCenter: d.inspectionCenter || null,
+        status: d.status || 'pending',
+        adminFeedback: d.adminFeedback || null,
         createdAt: d.createdAt,
       })),
     });

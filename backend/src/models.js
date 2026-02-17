@@ -58,7 +58,11 @@ const DriverVerification = sequelize.define('DriverVerification', {
   vehicleType: { type: DataTypes.STRING, allowNull: true, defaultValue: 'car' }, // car | bike | taxi | van | truck | ambulance
   vehiclePlate: { type: DataTypes.STRING, allowNull: true }, // for duplicate detection (same vehicle = temp_block)
   driverName: { type: DataTypes.STRING, allowNull: true },
-  email: { type: DataTypes.STRING, allowNull: true }, // Minimal fix: email field add kiya
+  email: { type: DataTypes.STRING, allowNull: true, unique: true }, // Minimal fix: email field add kiya
+  phone: { type: DataTypes.STRING, allowNull: true },
+  city: { type: DataTypes.STRING, allowNull: true },
+  dni: { type: DataTypes.STRING, allowNull: true, unique: true },
+  license: { type: DataTypes.STRING, allowNull: true, unique: true },
   hasAntecedentesPoliciales: { type: DataTypes.BOOLEAN, allowNull: true },
   hasAntecedentesPenales: { type: DataTypes.BOOLEAN, allowNull: true },
   customRatePerKm: { type: DataTypes.DOUBLE, allowNull: true }, // optional per-driver fare override (S/ per km)
@@ -85,6 +89,9 @@ const DriverVerification = sequelize.define('DriverVerification', {
   // NEW: Registration deadline tracking (24-hour completion window)
   registrationStartedAt: { type: DataTypes.DATE, allowNull: true },
   registrationDeadline: { type: DataTypes.DATE, allowNull: true },
+  // Collision repair tracking
+  collisionRepaired: { type: DataTypes.BOOLEAN, allowNull: true, defaultValue: false },
+  previousDriverId: { type: DataTypes.STRING(64), allowNull: true },
 }, { timestamps: true });
 
 /** Driver verification documents (Peru: brevete_frente, brevete_dorso, dni, selfie, soat, tarjeta_propiedad, foto_vehiculo). */
@@ -100,6 +107,13 @@ const DriverDocument = sequelize.define('DriverDocument', {
   insuranceCompany: { type: DataTypes.STRING, allowNull: true }, // For SOAT
   certificateNumber: { type: DataTypes.STRING, allowNull: true }, // For Revisión Técnica
   inspectionCenter: { type: DataTypes.STRING, allowNull: true }, // For Revisión Técnica
+  status: { 
+    type: DataTypes.STRING, 
+    allowNull: false, 
+    defaultValue: 'pending' 
+    // pending | approved | rejected | expired
+  },
+  adminFeedback: { type: DataTypes.TEXT, allowNull: true }, // Reason for rejection
 }, { timestamps: true, updatedAt: false });
 
 /** Audit log for driver verification actions (admin approve/reject/suspend/reupload_requested). */
@@ -234,6 +248,8 @@ const Tour = sequelize.define('Tour', {
 /** Driver wallet – credits balance per driver. Credits valid 1 year from last top-up. */
 const DriverWallet = sequelize.define('DriverWallet', {
   driverId: { type: DataTypes.STRING, allowNull: false, unique: true },
+  appUserId: { type: DataTypes.INTEGER, allowNull: true, unique: true }, // FK → AppUser.id (wallet isolation fix)
+  ownerPhone: { type: DataTypes.STRING(32), allowNull: true }, // cross-reference audit field
   balance: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 }, // credits
   lastScratchAt: { type: DataTypes.DATEONLY, allowNull: true }, // YYYY-MM-DD for daily scratch card
   creditsValidUntil: { type: DataTypes.DATEONLY, allowNull: true }, // YYYY-MM-DD – credits expire after 1 year from last recharge/scratch

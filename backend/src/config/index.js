@@ -1,15 +1,15 @@
-require('dotenv').config();
+// Only load .env file in development — Cloud Run injects env vars at runtime
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config();
+}
 
 // Import environment validator
-const { validateEnvironment, getEnvironmentSummary } = require('./env-validator');
+const validateEnvironment = require('./env-validator');
 
 const env = process.env.NODE_ENV || 'development';
 
 // Validate environment variables and fail fast in production
-const envValidation = validateEnvironment(env);
-
-// Show environment summary
-getEnvironmentSummary();
+validateEnvironment();
 
 const jwtSecret = process.env.JWT_SECRET;
 
