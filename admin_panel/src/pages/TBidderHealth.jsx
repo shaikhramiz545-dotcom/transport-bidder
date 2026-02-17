@@ -216,8 +216,18 @@ function TBidderHealth() {
                 <div className="health-api-card">
                   <Globe size={20} className="health-api-card-icon" />
                   <div className="health-api-card-body">
-                    <ApiStatusRow ok={data.services?.places} label="Places API" traffic={data.traffic?.userApp?.places} />
-                    <ApiStatusRow ok={data.services?.directions} label="Directions API" traffic={data.traffic?.userApp?.directions} />
+                    <ApiStatusRow 
+                      ok={data.services?.places} 
+                      label="Places API" 
+                      traffic={data.traffic?.userApp?.places}
+                      notConfigured={!data.services?.places && data.services?.placesMsg === 'No API key'}
+                    />
+                    <ApiStatusRow 
+                      ok={data.services?.directions} 
+                      label="Directions API" 
+                      traffic={data.traffic?.userApp?.directions}
+                      notConfigured={!data.services?.directions && data.services?.directionsMsg === 'No API key'}
+                    />
                   </div>
                 </div>
                 <div className="health-api-card">
@@ -233,7 +243,11 @@ function TBidderHealth() {
                 <div className="health-api-card">
                   <Mail size={20} className="health-api-card-icon" />
                   <div className="health-api-card-body">
-                    <ApiStatusRow ok={data.services?.smtp?.ok} label="SMTP (Email)" />
+                    <ApiStatusRow 
+                      ok={data.services?.smtp?.ok} 
+                      label="SMTP (Email)" 
+                      notConfigured={!data.services?.smtp?.ok && (data.services?.smtp?.msg === 'Not configured' || data.services?.smtp?.msg?.includes('connect ECONNREFUSED'))}
+                    />
                   </div>
                 </div>
               </div>
