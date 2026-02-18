@@ -68,8 +68,7 @@ async function sendEmail(toEmail, toName, subject, htmlBody, variables = {}) {
       from: { email: FROM_EMAIL, name: FROM_NAME },
       domain: DOMAIN,
       subject,
-      body: htmlBody,
-      content_type: 'HTML',
+      body: { type: 'text/html', data: htmlBody },
     };
     // Only include template_id when explicitly configured (avoid conflict with custom body)
     if (TEMPLATE_ID) payload.template_id = TEMPLATE_ID;
