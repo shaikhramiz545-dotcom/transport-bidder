@@ -6,7 +6,7 @@ const express = require('express');
 const axios = require('axios');
 
 const router = express.Router();
-const GOOGLE_API_KEY = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_API_KEY || 'YOUR_GOOGLE_MAPS_API_KEY';
+const GOOGLE_API_KEY = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_API_KEY || '';
 
 router.get('/', async (req, res) => {
   try {

@@ -52,7 +52,8 @@ app.get('/api/health', (req, res) => {
 });
 
 // ---------- Admin (control panel) ----------
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
+if (!process.env.ADMIN_PASSWORD) { console.error('FATAL: ADMIN_PASSWORD env var is not set'); process.exit(1); }
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
 app.post('/api/admin/login', (req, res) => {
   const body = req.body || {};

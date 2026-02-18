@@ -3,6 +3,7 @@
  * Requires FIREBASE_SERVICE_ACCOUNT_PATH or GOOGLE_APPLICATION_CREDENTIALS.
  */
 const { getFirestore } = require('../services/firebase-admin');
+const admin = require('firebase-admin');
 
 const COL = {
   users: 'users',
@@ -503,7 +504,11 @@ async function upsertBid(rideId, { driverId, driverName, driverPhone, carModel, 
         createdAt: now,
         updatedAt: now,
       };
+      const rideRef = db.collection(COL.rides).doc(rideId);
       transaction.set(bidRef, newBid);
+      transaction.update(rideRef, {
+        bidIds: admin.firestore.FieldValue.arrayUnion(bidId),
+      });
       return { bidId, action: 'created' };
     }
   });
@@ -660,25 +665,26 @@ async function acceptBidTransaction(rideId, bidId, { driverId, driverPhone, driv
 
     const now = _ts();
 
-    // 3. Mark all bids for this ride as rejected (except the accepted one)
-    // This requires fetching all bids first
-    const bidsSnap = await db.collection(COL.bids)
-      .where('rideId', '==', rideId)
-      .get();
-
-    for (const bidDocItem of bidsSnap.docs) {
-      if (bidDocItem.id !== bidId) {
-        const otherBid = bidDocItem.data();
-        const otherStatus = otherBid.status || BID_STATUS.PENDING;
-        // Only update if not already in a terminal state
-        if (otherStatus !== BID_STATUS.ACCEPTED &&
-            otherStatus !== BID_STATUS.REJECTED &&
-            otherStatus !== BID_STATUS.EXPIRED) {
-          transaction.update(bidDocItem.ref, {
-            status: BID_STATUS.REJECTED,
-            updatedAt: now,
-          });
-        }
+    // 3. Mark all other bids as rejected using ride.bidIds[] — all reads via transaction.get()
+    // This prevents the race condition where a non-transactional collection query
+    // could allow two concurrent accept-bid calls to both succeed.
+    const bidIds = Array.isArray(ride.bidIds) ? ride.bidIds : [];
+    const otherBidRefs = bidIds
+      .filter(id => id !== bidId)
+      .map(id => db.collection(COL.bids).doc(id));
+    const otherBidDocs = await Promise.all(
+      otherBidRefs.map(ref => transaction.get(ref))
+    );
+    for (const otherBidDoc of otherBidDocs) {
+      if (!otherBidDoc.exists) continue;
+      const otherStatus = otherBidDoc.data().status || BID_STATUS.PENDING;
+      if (otherStatus !== BID_STATUS.ACCEPTED &&
+          otherStatus !== BID_STATUS.REJECTED &&
+          otherStatus !== BID_STATUS.EXPIRED) {
+        transaction.update(otherBidDoc.ref, {
+          status: BID_STATUS.REJECTED,
+          updatedAt: now,
+        });
       }
     }
 
@@ -833,15 +839,16 @@ async function getOrCreateDriverWallet(driverId) {
 async function updateDriverWalletBalance(driverId, delta) {
   const db = getDb();
   if (!db) throw new Error('Firestore not configured');
-  const w = await getDriverWallet(driverId);
-  if (!w) {
-    await getOrCreateDriverWallet(driverId);
-  }
+  await getOrCreateDriverWallet(driverId);
   const snap = await db.collection(COL.driver_wallets).where('driverId', '==', driverId).limit(1).get();
   if (snap.empty) return;
-  const doc = snap.docs[0];
-  const current = doc.data().balance ?? 0;
-  await doc.ref.update({ balance: current + delta, updatedAt: _ts() });
+  const docRef = snap.docs[0].ref;
+  await db.runTransaction(async (transaction) => {
+    const doc = await transaction.get(docRef);
+    if (!doc.exists) return;
+    const current = doc.data().balance ?? 0;
+    transaction.update(docRef, { balance: current + delta, updatedAt: _ts() });
+  });
 }
 
 // ---------- DriverVerification ----------

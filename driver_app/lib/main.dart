@@ -1,6 +1,11 @@
+import 'dart:async';
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:tbidder_driver_app/core/app_theme.dart';
 import 'package:tbidder_driver_app/core/firm_config.dart';
@@ -15,19 +20,32 @@ final GlobalKey<ScaffoldMessengerState> kScaffoldMessengerKey = GlobalKey<Scaffo
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  try {
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-    FcmService.onForegroundMessage = (title, body) {
-      kScaffoldMessengerKey.currentState?.showSnackBar(
-        SnackBar(content: Text('$title: $body'), backgroundColor: AppTheme.neonOrange),
-      );
-    };
-    await FcmService().init();
-  } catch (e) {
-    // Web: FCM service worker missing etc. – app still runs; push works on Android/iOS.
-  }
-  runApp(const TbidderDriverApp());
+
+  await runZonedGuarded(() async {
+    try {
+      await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+      FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
+
+      PlatformDispatcher.instance.onError = (error, stack) {
+        FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+        return true;
+      };
+
+      FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+      FcmService.onForegroundMessage = (title, body) {
+        kScaffoldMessengerKey.currentState?.showSnackBar(
+          SnackBar(content: Text('$title: $body'), backgroundColor: AppTheme.neonOrange),
+        );
+      };
+      await FcmService().init();
+    } catch (e) {
+      // Web: FCM service worker missing etc. – app still runs; push works on Android/iOS.
+    }
+    runApp(const TbidderDriverApp());
+  }, (error, stack) {
+    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+  });
 }
 
 class TbidderDriverApp extends StatefulWidget {

@@ -246,7 +246,7 @@ JWT_SECRET=GENERATE_STRONG_SECRET_32_BYTES
 MOCK_OTP=  # Leave empty for production (real OTPs)
 
 # MSG91 Email
-MSG91_AUTH_KEY=493792AXh2kGvvQ698de8a7P1
+MSG91_AUTH_KEY=YOUR_MSG91_AUTH_KEY_HERE
 MSG91_FROM_EMAIL=noreply@transportbidder.com
 MSG91_FROM_NAME=TransportBidder
 MSG91_DOMAIN=transportbidder.com

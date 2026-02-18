@@ -10,9 +10,12 @@ const { db: firestoreDb } = require('./config/firebase');
 
 const server = http.createServer(app);
 
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'https://tbidder-admin.web.app')
+  .split(',').map(o => o.trim()).filter(Boolean);
+
 const io = new Server(server, {
   cors: {
-    origin: '*',
+    origin: allowedOrigins,
     methods: ['GET', 'POST'],
   },
 });
@@ -86,12 +89,17 @@ async function cleanupStaleRides() {
     const cutoff = new Date(Date.now() - expiryMs);
     const snap = await fdb.collection(db.COL.rides)
       .where('status', '==', db.RIDE_STATUS.PENDING)
-      .where('createdAt', '<', cutoff)
-      .limit(20)
+      .limit(100)
       .get();
-    if (snap.empty) return;
+    // Filter by cutoff client-side to avoid requiring a composite Firestore index
+    const staleDocs = snap.docs.filter((doc) => {
+      const d = doc.data();
+      const createdAt = d.createdAt?.toDate?.() || d.createdAt;
+      return createdAt && new Date(createdAt) < cutoff;
+    }).slice(0, 20);
+    if (staleDocs.length === 0) return;
     let expired = 0;
-    for (const doc of snap.docs) {
+    for (const doc of staleDocs) {
       try {
         await db.expireRideAndBids(doc.id);
         expired++;

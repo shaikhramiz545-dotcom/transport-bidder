@@ -1,23 +1,27 @@
 const jwt = require('jsonwebtoken');
 const config = require('../config');
+const { getClient: getRedis } = require('../services/redis');
 
-function authenticate(req, res, next) {
+async function authenticate(req, res, next) {
   const auth = req.headers.authorization;
   const token = auth && auth.startsWith('Bearer ') ? auth.slice(7) : null;
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
   try {
-    req.auth = jwt.verify(token, config.jwtSecret);
-    
-    // Log role safely
-    if (req.auth) {
-       console.log(`[Auth] Authenticated User: ${req.auth.userId || 'unknown'} Role: ${req.auth.role || 'none'}`);
-       console.log(`[Auth] Role: ${req.auth.role}`);
+    const payload = jwt.verify(token, config.jwtSecret);
+    if (payload.jti) {
+      const valid = await getRedis().exists(`jti:${payload.jti}`);
+      if (!valid) return res.status(401).json({ error: 'Token revoked or expired' });
     }
-
+    req.auth = payload;
     return next();
   } catch {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
+}
+
+async function revokeToken(jti) {
+  if (!jti) return;
+  await getRedis().del(`jti:${jti}`);
 }
 
 function requireRole(roles) {
@@ -39,4 +43,4 @@ function requireRole(roles) {
   };
 }
 
-module.exports = { authenticate, requireRole };
+module.exports = { authenticate, requireRole, revokeToken };

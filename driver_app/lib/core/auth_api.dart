@@ -37,10 +37,23 @@ class AuthApi {
           'role': role,
         }),
       ).timeout(const Duration(seconds: 15));
-      final data = jsonDecode(res.body) as Map<String, dynamic>? ?? {};
+
+      Map<String, dynamic> data = {};
+      try {
+        final decoded = jsonDecode(res.body);
+        if (decoded is Map<String, dynamic>) data = decoded;
+      } catch (_) {
+        // Non-JSON response body
+      }
+
+      final msg = (data['message'] as String?) ??
+          ((data['error'] is Map) ? (data['error']['message'] as String?) : null) ??
+          (res.statusCode == 429 ? 'Too many requests. Please wait and try again.' : null) ??
+          'Signup failed';
+
       return AuthResponse(
-        success: data['success'] as bool? ?? false,
-        message: data['message'] as String? ?? 'Signup failed',
+        success: data['success'] as bool? ?? (res.statusCode >= 200 && res.statusCode < 300),
+        message: msg,
         token: data['token'] as String?,
         user: _parseUser(data['user']),
       );
@@ -66,11 +79,21 @@ class AuthApi {
           if (role != null) 'role': role,
         }),
       ).timeout(const Duration(seconds: 15));
-      final data = jsonDecode(res.body) as Map<String, dynamic>? ?? {};
+
+      Map<String, dynamic> data = {};
+      try {
+        final decoded = jsonDecode(res.body);
+        if (decoded is Map<String, dynamic>) data = decoded;
+      } catch (_) {}
+
       final code = data['code'] as String?;
+      final msg = (data['message'] as String?) ??
+          ((data['error'] is Map) ? (data['error']['message'] as String?) : null) ??
+          (res.statusCode == 429 ? 'Too many requests. Please wait and try again.' : null) ??
+          'Login failed';
       return AuthResponse(
-        success: data['success'] as bool? ?? false,
-        message: data['message'] as String? ?? 'Login failed',
+        success: data['success'] as bool? ?? (res.statusCode >= 200 && res.statusCode < 300),
+        message: msg,
         token: data['token'] as String?,
         user: _parseUser(data['user']),
         code: code,
@@ -97,10 +120,20 @@ class AuthApi {
           'role': role,
         }),
       ).timeout(const Duration(seconds: 15));
-      final data = jsonDecode(res.body) as Map<String, dynamic>? ?? {};
+
+      Map<String, dynamic> data = {};
+      try {
+        final decoded = jsonDecode(res.body);
+        if (decoded is Map<String, dynamic>) data = decoded;
+      } catch (_) {}
+
+      final msg = (data['message'] as String?) ??
+          ((data['error'] is Map) ? (data['error']['message'] as String?) : null) ??
+          (res.statusCode == 429 ? 'Too many requests. Please wait and try again.' : null) ??
+          'Verification failed';
       return AuthResponse(
-        success: data['success'] as bool? ?? false,
-        message: data['message'] as String? ?? 'Verification failed',
+        success: data['success'] as bool? ?? (res.statusCode >= 200 && res.statusCode < 300),
+        message: msg,
         token: data['token'] as String?,
         user: _parseUser(data['user']),
       );

@@ -26,14 +26,25 @@ const walletRoutes = require('./routes/wallet.routes');
 
 const app = express();
 
+// Cloud Run / reverse proxies: ensure req.ip uses X-Forwarded-For.
+// Without this, many users can share the same IP bucket and hit rate limits.
+app.set('trust proxy', 1);
+
 // 1. Security Middleware (Helmet & Rate Limiting)
 app.use(helmet());
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  max: 1000, // Limit each IP to 1000 requests per windowMs
   standardHeaders: true,
   legacyHeaders: false,
+  // Skip rate limiting for internal health pings (loopback)
+  skip: (req) => {
+    const ip = req.ip || req.connection?.remoteAddress || '';
+    const p = req.path || req.url?.split('?')[0] || '';
+    if (p === '/' || p === '/api/health' || p === '/api/v1/health' || p === '/health') return true;
+    return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+  },
   message: {
     success: false,
     error: {
@@ -109,9 +120,6 @@ apiV1.use('/wallet', walletRoutes);
 
 // Mount API v1
 app.use('/api/v1', apiV1);
-
-// Backward compatibility: Mount API v1 routes to /api
-app.use('/api', apiV1);
 
 // Root Route
 app.get('/', (_req, res) => {

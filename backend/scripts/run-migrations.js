@@ -11,7 +11,7 @@ let config;
 if (databaseUrl) {
   config = {
     connectionString: databaseUrl,
-    ssl: { rejectUnauthorized: false },
+    ssl: { rejectUnauthorized: true },
   };
 } else {
   const host = process.env.PG_HOST || 'localhost';
@@ -24,7 +24,7 @@ if (databaseUrl) {
     database: process.env.PG_DATABASE || 'tbidder',
     user: process.env.PG_USER || 'postgres',
     password: process.env.PG_PASSWORD || '',
-    ssl: useSsl ? { rejectUnauthorized: false } : false,
+    ssl: useSsl ? { rejectUnauthorized: true } : false,
   };
 }
 

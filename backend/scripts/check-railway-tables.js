@@ -9,7 +9,7 @@ async function main() {
 
   const client = new Client({
     connectionString: cs,
-    ssl: { rejectUnauthorized: false },
+    ssl: { rejectUnauthorized: true },
   });
 
   await client.connect();

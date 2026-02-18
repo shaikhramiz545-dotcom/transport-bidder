@@ -884,8 +884,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
     }
 
-    // "Accepting" now means placing a bid matching the user's price
-    final (bool ok, result) = await _rideBidService.acceptBid(requestId, driverId: driverId, driverPhone: _driverPhone);
+    // Place a bid at the user's price (bidding flow — user will see it and can accept)
+    final driverName = await ProfileStorageService.getName() ?? 'Driver';
+    final carModel = await ProfileStorageService.getVehicle() ?? _driverVehicleType;
+    final (bool ok, _) = await _rideBidService.placeBid(
+      requestId,
+      price: request.userBidPrice,
+      driverId: driverId,
+      driverName: driverName,
+      driverPhone: _driverPhone,
+      carModel: carModel,
+    );
     if (!mounted) return;
     
     if (ok) {
@@ -904,12 +913,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       // Start polling my bids to check if user accepts
       _startMyBidsPolling();
       
-    } else if (result != null) {
-      setState(() => _incomingRequest = null);
-      _showCreditWarningDialog(
-        message: result.message.isNotEmpty ? result.message : _t('wallet_low_credit_accept'),
-        code: result.code,
-      );
     } else {
       setState(() => _incomingRequest = null);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1093,6 +1096,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             // Bug fix: pass driverPhone so backend bid entry has driver contact info.
             final ok = await _rideBidService.counterBid(requestId, counterPrice, driverPhone: _driverPhone);
             if (!mounted) return;
+            if (ok) {
+              _myBidRideIds.add(requestId);
+              _startMyBidsPolling();
+            }
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(ok ? _t('counter_offer_sent', {'price': counterPrice.toStringAsFixed(2)}) : _t('could_not_send'), style: GoogleFonts.poppins()),

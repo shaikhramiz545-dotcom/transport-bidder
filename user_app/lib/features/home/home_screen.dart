@@ -163,11 +163,114 @@ class _HomeScreenState extends State<HomeScreen> {
 
   static const String _kLastLat = 'user_last_lat';
   static const String _kLastLng = 'user_last_lng';
+  static const String _kActiveRideId = 'active_ride_id';
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _checkLocationOnStart());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkLocationOnStart();
+      _reconnectActiveRide();
+    });
+  }
+
+  /// On app start, check if there's a persisted active ride and reconnect.
+  Future<void> _reconnectActiveRide() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedRideId = prefs.getString(_kActiveRideId);
+      if (savedRideId == null || savedRideId.isEmpty) return;
+      // Verify ride still exists and is active
+      final ride = await _biddingService.getRide(savedRideId);
+      if (!mounted || ride == null) {
+        await prefs.remove(_kActiveRideId);
+        return;
+      }
+      final status = ride['status'] as String? ?? '';
+      if (status == 'completed' || status == 'cancelled' || status == 'expired') {
+        await prefs.remove(_kActiveRideId);
+        return;
+      }
+      // Ride is still active — reconnect
+      if (status == 'accepted' || status == 'driver_arrived' || status == 'ride_started') {
+        // Already accepted — go straight to tracking
+        _startDriverLocationPolling(savedRideId);
+      } else if (status == 'pending') {
+        // Still waiting for bids — reopen bidding sheet
+        if (!mounted) return;
+        _reopenBiddingSheet(savedRideId);
+      }
+    } catch (e) {
+      print('[HomeScreen] reconnect error: $e');
+    }
+  }
+
+  /// Persist active ride ID to survive navigation/restart.
+  Future<void> _persistActiveRide(String rideId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kActiveRideId, rideId);
+  }
+
+  /// Clear persisted ride ID when ride completes/cancels.
+  Future<void> _clearPersistedRide() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_kActiveRideId);
+  }
+
+  /// Reopen the bidding sheet for a persisted pending ride.
+  void _reopenBiddingSheet(String rideId) {
+    bool sheetHandled = false;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      isDismissible: false,
+      enableDrag: false,
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        minChildSize: 0.4,
+        maxChildSize: 0.9,
+        builder: (context, scrollController) => _LiveBiddingSheetContent(
+          rideId: rideId,
+          estimatedFare: _estimatedPrice,
+          vehicleType: _selectedVehicle ?? VehicleType.taxi_std,
+          biddingService: _biddingService,
+          scrollController: scrollController,
+          onAccept: (driverName) {
+            if (sheetHandled) return;
+            sheetHandled = true;
+            try { Navigator.of(ctx).pop(); } catch (_) {}
+            _startDriverLocationPolling(rideId);
+            setState(() => _isSearching = false);
+            if (!mounted) return;
+            _showDriverThankYouDialog(driverName);
+          },
+          onCancel: () {
+            if (sheetHandled) return;
+            sheetHandled = true;
+            try { Navigator.of(ctx).pop(); } catch (_) {}
+            _cancelActiveRide(rideId);
+          },
+        ),
+      ),
+    );
+  }
+
+  /// Cancel the active ride and clean up.
+  Future<void> _cancelActiveRide(String rideId) async {
+    await _clearPersistedRide();
+    // Cancel on backend (expires ride + all bids atomically)
+    try {
+      await _biddingService.cancelRide(rideId);
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() {
+      _isSearching = false;
+      _searchingVehicleLabel = null;
+      _currentRideId = null;
+      _currentRideOtp = null;
+      _currentRideStatus = null;
+    });
   }
 
   /// App start par: previous vs current location test. Agar location change hai (pehle tha ab nahi mila) to hi "Turn on location" button dikhao.
@@ -959,6 +1062,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _rideMessages = [];
     _driverPhone = null;
     _stopListeningToDriver();
+    _clearPersistedRide();
   }
 
   void _openChatSheet() {
@@ -2115,6 +2219,9 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
+    // Persist ride ID so it survives navigation/app restart
+    _persistActiveRide(rideId);
+
     // Keep overlay visible for at least 4 seconds so user sees "Please wait finding your <vehicle>"
     final elapsed = DateTime.now().difference(overlayStart);
     final remaining = const Duration(seconds: 4) - elapsed;
@@ -2133,6 +2240,8 @@ class _HomeScreenState extends State<HomeScreen> {
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
+      isDismissible: false,
+      enableDrag: false,
       builder: (ctx) => DraggableScrollableSheet(
         initialChildSize: 0.6,
         minChildSize: 0.4,
@@ -2155,7 +2264,8 @@ class _HomeScreenState extends State<HomeScreen> {
           onCancel: () {
             if (sheetHandled) return;
             sheetHandled = true;
-            Navigator.of(ctx).pop();
+            try { Navigator.of(ctx).pop(); } catch (_) {}
+            _cancelActiveRide(rideId);
           },
         ),
       ),
@@ -2829,12 +2939,22 @@ class _LiveBiddingSheetContentState extends State<_LiveBiddingSheetContent> {
     final ride = await widget.biddingService.getRide(widget.rideId);
     if (!mounted) return;
     if (ride == null) return;
-    if (ride['status'] == 'accepted') {
+    final status = ride['status'] as String? ?? '';
+    if (status == 'accepted') {
       _accepted = true;
       _pollTimer?.cancel();
+      // Prefer driverName from accepted bid; fall back to driverPhone or generic
+      final dn = ride['driverName'] as String?;
       final dp = ride['driverPhone'] as String?;
-      final driverName = dp != null && dp.isNotEmpty ? dp : 'Conductor';
+      final driverName = (dn != null && dn.isNotEmpty) ? dn : (dp != null && dp.isNotEmpty ? dp : 'Conductor');
       widget.onAccept(driverName);
+      return;
+    }
+    // Auto-close bidding sheet if ride was expired/cancelled/completed externally
+    if (status == 'expired' || status == 'cancelled' || status == 'completed') {
+      _accepted = true; // prevent further polling
+      _pollTimer?.cancel();
+      widget.onCancel();
       return;
     }
     

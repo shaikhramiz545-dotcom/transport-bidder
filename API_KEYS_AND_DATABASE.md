@@ -71,7 +71,7 @@ Agar tumhara PostgreSQL **AWS RDS** par hai, to backend ko usi se connect karvan
 ```env
 GOOGLE_MAPS_API_KEY=YOUR_GOOGLE_MAPS_API_KEY
 ```
-(Agar tumhare paas apna key hai to woh use karo; yeh example key hai – production ke liye naya key banao aur restrict karo.)
+(Apna key Google Cloud Console → APIs & Services → Credentials se lo; production ke liye restrict karo.)
 
 ---
 
@@ -82,7 +82,7 @@ GOOGLE_MAPS_API_KEY=YOUR_GOOGLE_MAPS_API_KEY
 | **user_app** | AndroidManifest: `com.google.android.geo.API_KEY` = key set | index.html: script src with key | (Agar iOS build karo to Info.plist mein key add karna padega) |
 | **driver_app** | AndroidManifest: same meta-data | index.html: script src with key | Same |
 
-**Current key in apps:** `YOUR_GOOGLE_MAPS_API_KEY` (user_app + driver_app Android + web).  
+**Current key in apps:** Set via `GOOGLE_MAPS_API_KEY` env var and in AndroidManifest.xml (user_app + driver_app Android + web).  
 **Note:** Yeh key **public** hai (client-side). Agar Google Cloud mein billing / restrictions nahi hai to map blank ya error aa sakta hai. Production ke liye: naya key, API restrictions (Maps SDK, Places, Directions), aur billing enable karo.
 
 **Jo API available nahi hai (client-side):**  

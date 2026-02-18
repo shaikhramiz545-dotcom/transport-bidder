@@ -47,8 +47,10 @@ const getOnlineDriversList = driversRouter.getOnlineDriversList || (() => []);
 const router = express.Router();
 
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'admin@tbidder.com').trim().toLowerCase();
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
-const SALT = process.env.AGENCY_PASSWORD_SALT || 'tbidder-agency-salt-change-in-prod';
+if (!process.env.ADMIN_PASSWORD) { console.error('FATAL: ADMIN_PASSWORD env var is not set'); process.exit(1); }
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+if (!process.env.AGENCY_PASSWORD_SALT) { console.error('FATAL: AGENCY_PASSWORD_SALT env var is not set'); process.exit(1); }
+const SALT = process.env.AGENCY_PASSWORD_SALT;
 const PBKDF2_ITERATIONS = 100000;
 
 function hashPassword(password) {

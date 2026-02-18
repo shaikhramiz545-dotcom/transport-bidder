@@ -13,8 +13,8 @@ validateEnvironment();
 
 const jwtSecret = process.env.JWT_SECRET;
 
-if (env === 'production' && !jwtSecret) {
-  console.error('FATAL: JWT_SECRET must be set in production!');
+if (!jwtSecret || jwtSecret.trim().length < 32) {
+  console.error('FATAL: JWT_SECRET must be set and at least 32 characters long');
   process.exit(1);
 }
 
@@ -62,6 +62,6 @@ module.exports = {
   // Firebase Admin: set FIREBASE_SERVICE_ACCOUNT_PATH or GOOGLE_APPLICATION_CREDENTIALS to service account JSON path for password reset.
   firebaseServiceAccountPath: process.env.FIREBASE_SERVICE_ACCOUNT_PATH || process.env.GOOGLE_APPLICATION_CREDENTIALS,
   pg: pgConfig,
-  jwtSecret: jwtSecret || 'tbidder-dev-secret-change-in-production',
+  jwtSecret,
   mockOtp: process.env.MOCK_OTP || null, // Set to null for live OTP; set MOCK_OTP env var only for local dev testing
 };

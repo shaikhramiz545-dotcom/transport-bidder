@@ -75,6 +75,16 @@ class BiddingService {
             body: json.encode(body),
           )
           .timeout(const Duration(seconds: 15), onTimeout: () => throw Exception('Timeout'));
+      if (res.statusCode == 409) {
+        // ACTIVE_RIDE_EXISTS: reconnect to the existing ride instead of failing
+        final data = json.decode(res.body) as Map<String, dynamic>?;
+        final existingId = data?['existingRideId'] as String?;
+        if (existingId != null && existingId.isNotEmpty) {
+          print('[BiddingService] reconnecting to existing ride: $existingId');
+          return existingId;
+        }
+        return null;
+      }
       if (res.statusCode != 201) {
         print('[BiddingService] createRide failed: ${res.statusCode} ${res.body}');
         return null;
@@ -198,6 +208,19 @@ class BiddingService {
       return count is int ? count : 0;
     } catch (_) {
       return 0;
+    }
+  }
+
+  /// Cancel an active ride (pending or accepted). Returns true on success.
+  Future<bool> cancelRide(String rideId) async {
+    try {
+      final uri = Uri.parse('$_base/api/rides/$rideId/cancel');
+      final res = await http
+          .post(uri, headers: await _authHeaders(json: true))
+          .timeout(const Duration(seconds: 10), onTimeout: () => throw Exception('Timeout'));
+      return res.statusCode >= 200 && res.statusCode < 300;
+    } catch (_) {
+      return false;
     }
   }
 

@@ -8,6 +8,7 @@ const dayjs = require('dayjs');
 const db = require('../db/firestore');
 const { DriverVerification, DriverDocument, DriverIdentity, AppUser } = require('../models');
 const { authenticate, requireRole } = require('../utils/auth');
+const { getClient: getRedis } = require('../services/redis');
 
 const router = express.Router();
 
@@ -231,9 +232,34 @@ const driverDocStorage = multer.diskStorage({
 });
 const uploadDriverDoc = multer({ storage: driverDocStorage, limits: { fileSize: 10 * 1024 * 1024 } }); // 10 MB
 
-// In-memory: driverId -> { lat, lng, updatedAt, vehicleType }
-const onlineDrivers = new Map();
-const DRIVER_STALE_MS = 60 * 1000; // 1 min – remove if no update
+const DRIVER_TTL_SECONDS = 120; // Redis key TTL; driver must heartbeat within this window
+const ONLINE_IDS_KEY = 'drivers:online:ids';
+
+async function _setOnline(id, data) {
+  const redis = getRedis();
+  await redis.setex(`driver:online:${id}`, DRIVER_TTL_SECONDS, JSON.stringify(data));
+  await redis.sadd(ONLINE_IDS_KEY, id);
+}
+
+async function _delOnline(id) {
+  const redis = getRedis();
+  await redis.del(`driver:online:${id}`);
+  await redis.srem(ONLINE_IDS_KEY, id);
+}
+
+async function _getOnlineAll() {
+  const redis = getRedis();
+  const ids = await redis.smembers(ONLINE_IDS_KEY);
+  const results = [];
+  const stale = [];
+  await Promise.all(ids.map(async (id) => {
+    const raw = await redis.get(`driver:online:${id}`);
+    if (!raw) { stale.push(id); return; }
+    try { results.push({ id, ...JSON.parse(raw) }); } catch (_) {}
+  }));
+  if (stale.length) await Promise.all(stale.map(id => redis.srem(ONLINE_IDS_KEY, id)));
+  return results;
+}
 const VEHICLE_TYPES = ['car', 'bike', 'taxi', 'van', 'truck', 'car_hauler', 'ambulance'];
 
 // Vehicle-type based search radius (km) for matching drivers to rides
@@ -291,22 +317,17 @@ function generateShortDriverId() {
   return `d-${hex}`;
 }
 
-/** For control panel: count drivers that reported location in last DRIVER_STALE_MS. */
-function getOnlineDriverCount() {
-  const now = Date.now();
-  let count = 0;
-  for (const [, v] of onlineDrivers.entries()) {
-    if (now - v.updatedAt <= DRIVER_STALE_MS) count++;
-  }
-  return count;
+/** For control panel: count active online drivers (Redis TTL = source of truth). */
+async function getOnlineDriverCount() {
+  const drivers = await _getOnlineAll();
+  return drivers.length;
 }
 
 /** Active drivers by vehicle type (for dashboard). */
-function getOnlineDriversByVehicle() {
-  const now = Date.now();
+async function getOnlineDriversByVehicle() {
   const out = { car: 0, bike: 0, taxi: 0, van: 0, truck: 0, car_hauler: 0, ambulance: 0 };
-  for (const [, v] of onlineDrivers.entries()) {
-    if (now - v.updatedAt > DRIVER_STALE_MS) continue;
+  const drivers = await _getOnlineAll();
+  for (const v of drivers) {
     const vt = (v.vehicleType || 'car').toLowerCase();
     if (out[vt] !== undefined) out[vt]++;
     else out.car++;
@@ -315,14 +336,9 @@ function getOnlineDriversByVehicle() {
 }
 
 /** List of live drivers (id, vehicleType, lat, lng) for dashboard. */
-function getOnlineDriversList() {
-  const now = Date.now();
-  const list = [];
-  for (const [id, v] of onlineDrivers.entries()) {
-    if (now - v.updatedAt > DRIVER_STALE_MS) continue;
-    list.push({ driverId: id, vehicleType: v.vehicleType || 'car', lat: v.lat, lng: v.lng });
-  }
-  return list;
+async function getOnlineDriversList() {
+  const drivers = await _getOnlineAll();
+  return drivers.map(v => ({ driverId: v.id, vehicleType: v.vehicleType || 'car', lat: v.lat, lng: v.lng }));
 }
 
 function haversineKm(lat1, lng1, lat2, lng2) {
@@ -431,7 +447,7 @@ router.post('/location', requireRole('driver'), async (req, res) => {
     try {
       const { status, blockReason } = await getVerificationStatus(id);
       if (status !== 'approved') {
-        onlineDrivers.delete(id);
+        await _delOnline(id);
         const message = blockReason || (status === 'pending' ? 'Profile pending re-approval.' : 'Account temporarily blocked. Please contact customer service.');
         return res.status(403).json({
           ok: false,
@@ -444,7 +460,7 @@ router.post('/location', requireRole('driver'), async (req, res) => {
       }
       const go = await canGoOnline(id);
       if (!go.canGoOnline) {
-        onlineDrivers.delete(id);
+        await _delOnline(id);
         return res.status(403).json({
           ok: false,
           blocked: true,
@@ -489,13 +505,9 @@ router.post('/location', requireRole('driver'), async (req, res) => {
   }
 
   const vt = vehicleType && VEHICLE_TYPES.includes(String(vehicleType).toLowerCase()) ? String(vehicleType).toLowerCase() : 'car';
-  onlineDrivers.set(id, { lat, lng, updatedAt: Date.now(), vehicleType: vt });
+  await _setOnline(id, { lat, lng, updatedAt: Date.now(), vehicleType: vt });
 
   res.json({ ok: true, driverId: id });
-
-  for (const [k, v] of onlineDrivers.entries()) {
-    if (Date.now() - v.updatedAt > DRIVER_STALE_MS) onlineDrivers.delete(k);
-  }
 });
 
 // Driver app: going offline

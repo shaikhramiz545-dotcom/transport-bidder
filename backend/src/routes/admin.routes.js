@@ -48,8 +48,10 @@ const getOnlineDriversList = driversRouter.getOnlineDriversList || (() => []);
 const router = express.Router();
 
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'admin@tbidder.com').trim().toLowerCase();
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
-const SALT = process.env.AGENCY_PASSWORD_SALT || 'tbidder-agency-salt-change-in-prod';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+if (!ADMIN_PASSWORD) { console.error('FATAL: ADMIN_PASSWORD env var is not set'); process.exit(1); }
+const SALT = process.env.AGENCY_PASSWORD_SALT;
+if (!SALT) { console.error('FATAL: AGENCY_PASSWORD_SALT env var is not set'); process.exit(1); }
 const PBKDF2_ITERATIONS = 100000;
 
 function hashPassword(password) {
@@ -209,30 +211,54 @@ router.get('/health-status', authMiddleware, async (req, res) => {
   }
 
   // Firestore – check if configured first
-  const fsConfigured = !!getFirestore();
-  if (!fsConfigured) {
-    result.services.firestore = { configured: false, ok: null, msg: 'Not configured' };
-  } else {
-    try {
-      const fsOk = await firestore.healthCheck();
-      result.services.firestore = { configured: true, ok: fsOk, msg: fsOk ? 'OK' : 'Down' };
-    } catch (e) {
-      result.services.firestore = { configured: true, ok: false, msg: e.message || 'Error' };
+  try {
+    const fsDb = getFirestore();
+    if (!fsDb) {
+      result.services.firestore = { configured: false, ok: false, msg: 'Not configured - missing Firebase credentials' };
+    } else {
+      try {
+        const fsOk = await firestore.healthCheck();
+        result.services.firestore = { configured: true, ok: fsOk, msg: fsOk ? 'OK' : 'Connection failed' };
+      } catch (e) {
+        result.services.firestore = { configured: true, ok: false, msg: e.message || 'Health check error' };
+      }
     }
+  } catch (e) {
+    result.services.firestore = { configured: false, ok: false, msg: e.message || 'Configuration error' };
   }
 
   // MSG91 (Email OTP for account verification + password reset)
-  const msg91Configured = require('../services/msg91').isConfigured();
-  result.services.msg91 = { configured: msg91Configured, ok: msg91Configured, msg: msg91Configured ? 'OK' : 'MSG91_AUTH_KEY not set' };
+  try {
+    const msg91Configured = require('../services/msg91').isConfigured();
+    if (!msg91Configured) {
+      result.services.msg91 = { configured: false, ok: false, msg: 'MSG91_AUTH_KEY not set' };
+    } else {
+      // Validate MSG91 by pinging their API with the auth key
+      try {
+        const msg91Key = process.env.MSG91_AUTH_KEY || '';
+        const pingRes = await axios.get('https://control.msg91.com/api/v5/report/mail/domain/list', {
+          headers: { authkey: msg91Key },
+          timeout: 5000,
+        });
+        const ok = pingRes.status < 400;
+        result.services.msg91 = { configured: true, ok, msg: ok ? 'OK' : `HTTP ${pingRes.status}` };
+      } catch (msg91Err) {
+        // If ping fails but key is set, still mark as configured but warn
+        const status = msg91Err.response?.status;
+        if (status === 401 || status === 403) {
+          result.services.msg91 = { configured: true, ok: false, msg: 'Invalid AUTH_KEY' };
+        } else {
+          result.services.msg91 = { configured: true, ok: true, msg: 'Configured (API unreachable for validation)' };
+        }
+      }
+    }
+  } catch (e) {
+    result.services.msg91 = { configured: false, ok: false, msg: e.message || 'Configuration error' };
+  }
 
   // External: Places & Directions
   const googleKeyRaw = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_API_KEY || '';
   const googleKey = googleKeyRaw.trim();
-  console.log('[health-status] Google Maps API Key present:', !!googleKey);
-  console.log('[health-status] MAPS KEY LENGTH:', googleKey.length);
-  console.log('[health-status] MAPS KEY PREFIX:', googleKey.substring(0, 8) + '...');
-  console.log('[health-status] MAPS KEY HAS WHITESPACE:', googleKey !== googleKey.trim());
-  console.log('[health-status] MAPS KEY SOURCE:', process.env.GOOGLE_MAPS_API_KEY ? 'GOOGLE_MAPS_API_KEY' : process.env.GOOGLE_API_KEY ? 'GOOGLE_API_KEY' : 'NONE');
   try {
     if (!googleKey) {
       result.services.places = false;
@@ -242,8 +268,6 @@ router.get('/health-status', authMiddleware, async (req, res) => {
         `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=Lima&key=${googleKey}&language=es&components=country:pe`,
         { timeout: 8000 }
       );
-      console.log('[health-status] Places API response status:', r.data?.status);
-      if (r.data?.error_message) console.log('[health-status] Places API error_message:', r.data.error_message);
       result.services.places = r.data?.status === 'OK' || r.data?.status === 'ZERO_RESULTS';
       if (!result.services.places) result.services.placesMsg = r.data?.error_message || r.data?.status;
     }
@@ -261,8 +285,6 @@ router.get('/health-status', authMiddleware, async (req, res) => {
         `https://maps.googleapis.com/maps/api/directions/json?origin=-12.0,-77.0&destination=-12.1,-77.1&mode=driving&key=${googleKey}`,
         { timeout: 8000 }
       );
-      console.log('[health-status] Directions API response status:', r.data?.status);
-      if (r.data?.error_message) console.log('[health-status] Directions API error_message:', r.data.error_message);
       result.services.directions = r.data?.status === 'OK';
       if (!result.services.directions) result.services.directionsMsg = r.data?.error_message || r.data?.status;
     }
@@ -363,15 +385,10 @@ router.get('/health-status', authMiddleware, async (req, res) => {
   // Payment gateway (dLocal)
   try {
     const dlocalConfigured = dlocal.isConfigured();
-    console.log('[health-status] dLocal configured:', dlocalConfigured);
-    console.log('[health-status] DLOCAL_API_KEY present:', !!process.env.DLOCAL_API_KEY, 'len:', (process.env.DLOCAL_API_KEY || '').length);
-    console.log('[health-status] DLOCAL_SECRET_KEY present:', !!process.env.DLOCAL_SECRET_KEY, 'len:', (process.env.DLOCAL_SECRET_KEY || '').length);
-    console.log('[health-status] DLOCAL_SANDBOX:', process.env.DLOCAL_SANDBOX);
     if (!dlocalConfigured) {
       result.services.paymentGateway = { configured: false, ok: null, msg: 'DLOCAL_API_KEY or DLOCAL_SECRET_KEY missing from environment' };
     } else {
       const pingRes = await axios.get(dlocal.getBaseUrl(), { timeout: 5000, validateStatus: () => true });
-      console.log('[health-status] dLocal ping status:', pingRes.status);
       result.services.paymentGateway = { configured: true, ok: pingRes.status < 500, msg: pingRes.status < 500 ? 'OK' : `HTTP ${pingRes.status}` };
     }
   } catch (e) {
@@ -395,7 +412,7 @@ router.get('/health-status', authMiddleware, async (req, res) => {
 
   // Stats + live business metrics
   try {
-    result.stats.onlineDrivers = getOnlineDriverCount();
+    result.stats.onlineDrivers = await getOnlineDriverCount();
     result.stats.pendingVerifications = 0;
     result.stats.pendingRides = 0;
     result.stats.totalRides = 0;
@@ -429,7 +446,9 @@ router.get('/health-status', authMiddleware, async (req, res) => {
   }
 
   const firestoreOk = result.services.firestore?.configured ? result.services.firestore?.ok : true;
-  const allOk = result.services.backend && (result.services.database || firestoreOk) && result.services.places && result.services.directions;
+  // Relaxed health check: consider system OK if backend + DB/Firestore are up. 
+  // External APIs (Maps, Payment, SMTP) missing keys shouldn't mark the whole platform as "Down".
+  const allOk = result.services.backend && (result.services.database || firestoreOk);
   result.ok = allOk;
 
   result.traffic = trafficCounter.getStats();
@@ -755,9 +774,11 @@ router.get('/stats', authMiddleware, async (_req, res) => {
     if (totalDriversByVehicle[vt] !== undefined) totalDriversByVehicle[vt]++;
     else totalDriversByVehicle.car++;
   }
-  const activeDriversByVehicle = getOnlineDriversByVehicle();
-  const liveDrivers = getOnlineDriversList();
-  const onlineDrivers = getOnlineDriverCount();
+  const [activeDriversByVehicle, liveDrivers, onlineDrivers] = await Promise.all([
+    getOnlineDriversByVehicle(),
+    getOnlineDriversList(),
+    getOnlineDriverCount(),
+  ]);
 
   return res.json({
     onlineDrivers,

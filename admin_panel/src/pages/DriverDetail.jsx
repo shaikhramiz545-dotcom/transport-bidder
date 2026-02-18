@@ -36,8 +36,9 @@ function DriverDetail() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [actioning, setActioning] = useState(null)
-  const [modal, setModal] = useState(null) // 'approve' | 'reject' | 'suspend' | 'reupload'
+  const [modal, setModal] = useState(null) // 'approve' | 'reject' | 'suspend' | 'reupload' | 'reject_doc'
   const [rejectReason, setRejectReason] = useState('')
+  const [selectedDoc, setSelectedDoc] = useState(null)
   const [suspendReason, setSuspendReason] = useState('')
   const [adminNotes, setAdminNotes] = useState('')
   const [customRatePerKm, setCustomRatePerKm] = useState('')
@@ -58,6 +59,7 @@ function DriverDetail() {
         const docsFromApi = docsRes.data.documents || []
         const fallbackDocs = toDocArrayFromObject(d?.documentUrls)
         const mergedDocs = docsFromApi.length > 0 ? docsFromApi : fallbackDocs
+        
         setDriver(d)
         setAdminNotes(d?.adminNotes ?? '')
         setCustomRatePerKm(d?.customRatePerKm != null ? String(d.customRatePerKm) : '')
@@ -94,6 +96,23 @@ function DriverDetail() {
         setRejectReason('')
         setSuspendReason('')
       })
+  }
+
+  const handleVerifyDoc = (doc, status, feedback = null) => {
+    if (!doc?.id) return
+    setActioning(`doc-${doc.id}`)
+    api.post(`/admin/drivers/${encodeURIComponent(driverId)}/documents/${doc.id}/verify`, {
+      status,
+      feedback
+    })
+      .then(({ data }) => {
+        setDocuments(prev => prev.map(d => d.id === doc.id ? { ...d, status: data.status, adminFeedback: data.feedback } : d))
+        setModal(null)
+        setRejectReason('')
+        setSelectedDoc(null)
+      })
+      .catch((err) => alert(err.response?.data?.error || err.message || 'Failed to verify document'))
+      .finally(() => setActioning(null))
   }
 
   const handleSaveNotes = () => {
@@ -449,13 +468,28 @@ function DriverDetail() {
             <h3>Document Gallery</h3>
             <div className="driver-doc-grid">
               {DOC_TYPES.map((docType) => {
-                const doc = documents.find((d) => d.documentType === docType)
+                // Find latest doc of this type (or specific one if we had multiple history, but current API returns list)
+                const doc = documents.filter(d => d.documentType === docType).sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt))[0]
+                
                 const label = DOC_LABELS[docType]
                 const fileUrl = doc?.fileUrl
                 const fullUrl = fileUrl ? (fileUrl.startsWith('http') ? fileUrl : `${uploadsBase}${fileUrl}`) : null
                 const expiry = doc?.expiryDate
+                const docStatus = doc?.status || 'pending'
+                const feedback = doc?.adminFeedback
+                const isApproved = docStatus === 'approved'
+                const isRejected = docStatus === 'rejected'
+
                 return (
-                  <div key={docType} className="driver-doc-tile">
+                  <div key={docType} className={`driver-doc-tile ${isRejected ? 'rejected' : ''} ${isApproved ? 'approved' : ''}`}>
+                    <div className="driver-doc-header">
+                      <span className="driver-doc-badge" style={{ 
+                        background: isApproved ? '#10b981' : isRejected ? '#ef4444' : '#f59e0b',
+                        color: '#fff', padding: '2px 6px', borderRadius: 4, fontSize: 10, marginBottom: 4, display: 'inline-block' 
+                      }}>
+                        {docStatus.toUpperCase()}
+                      </span>
+                    </div>
                     <div className="driver-doc-thumb">
                       {fullUrl ? (
                         <a href={fullUrl} target="_blank" rel="noopener noreferrer" title="Preview">
@@ -468,16 +502,34 @@ function DriverDetail() {
                     <div className="driver-doc-name">{label}</div>
                     <div className="driver-doc-meta">
                       {fullUrl && (
-                        <>
-                          <a href={fullUrl} target="_blank" rel="noopener noreferrer" className="driver-doc-link">
+                        <div className="driver-doc-actions">
+                           <a href={fullUrl} target="_blank" rel="noopener noreferrer" className="driver-doc-link">
                             <ExternalLink size={12} /> Open
                           </a>
-                          <a href={fullUrl} download className="driver-doc-link">
-                            <Download size={12} /> Download
-                          </a>
-                        </>
+                          {doc?.id && docStatus !== 'approved' && (
+                             <button 
+                               type="button" 
+                               className="doc-action-btn approve"
+                               disabled={!!actioning}
+                               onClick={() => handleVerifyDoc(doc, 'approved')}
+                             >
+                               <ShieldCheck size={12} />
+                             </button>
+                          )}
+                          {doc?.id && docStatus !== 'rejected' && (
+                             <button 
+                               type="button" 
+                               className="doc-action-btn reject"
+                               disabled={!!actioning}
+                               onClick={() => { setSelectedDoc(doc); setRejectReason(''); setModal('reject_doc'); }}
+                             >
+                               <ShieldX size={12} />
+                             </button>
+                          )}
+                        </div>
                       )}
                       {expiry && <span className="driver-doc-expiry">Expiry: {formatDate(expiry)}</span>}
+                      {feedback && <span className="driver-doc-feedback">Reason: {feedback}</span>}
                       {!fullUrl && <span className="driver-doc-status">Missing</span>}
                     </div>
                   </div>
@@ -556,6 +608,31 @@ function DriverDetail() {
                 onClick={() => handleVerify('rejected', rejectReason.trim())}
               >
                 Reject
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {modal === 'reject_doc' && selectedDoc && (
+        <div className="modal-overlay" onClick={() => setModal(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3>Reject Document</h3>
+            <p>Reason for rejection (required):</p>
+            <textarea
+              rows={3}
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="e.g. Blur, Expired, Wrong Type"
+            />
+            <div className="modal-actions">
+              <button type="button" className="btn-secondary" onClick={() => setModal(null)}>Cancel</button>
+              <button
+                type="button"
+                className="btn-decline"
+                disabled={actioning || !rejectReason.trim()}
+                onClick={() => handleVerifyDoc(selectedDoc, 'rejected', rejectReason.trim())}
+              >
+                Reject Document
               </button>
             </div>
           </div>

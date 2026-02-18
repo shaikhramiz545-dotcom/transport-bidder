@@ -12,7 +12,7 @@ const sequelize = new Sequelize(config.pg.database, config.pg.user, config.pg.pa
   dialect: 'postgres',
   logging: config.env === 'development' ? console.log : false,
   dialectOptions: {
-    ssl: useSsl ? { rejectUnauthorized: false } : false,
+    ssl: useSsl ? { rejectUnauthorized: true } : false,
   },
   pool: {
     max: 5,
@@ -32,7 +32,7 @@ const pool = new Pool({
   min: 0,
   idleTimeoutMillis: 10000,
   connectionTimeoutMillis: 30000,
-  ssl: useSsl ? { rejectUnauthorized: false } : false,
+  ssl: useSsl ? { rejectUnauthorized: true } : false,
 });
 
 pool.on('error', (err) => {

@@ -19,8 +19,8 @@ const pgSsl = pgSslEnv === 'true' || pgSslEnv === '1' || (!isLocalDb && pgSslEnv
 
 const jwtSecret = process.env.JWT_SECRET;
 
-if (env === 'production' && !jwtSecret) {
-  console.error('FATAL: JWT_SECRET must be set in production!');
+if (!jwtSecret || jwtSecret.length < 32) {
+  console.error('FATAL: JWT_SECRET must be set and at least 32 characters long');
   process.exit(1);
 }
 
@@ -37,6 +37,6 @@ module.exports = {
     password: process.env.PG_PASSWORD != null ? String(process.env.PG_PASSWORD) : '',
     ssl: pgSsl,
   },
-  jwtSecret: jwtSecret || 'tbidder-dev-secret-change-in-production',
+  jwtSecret,
   mockOtp: process.env.MOCK_OTP || null, // Set to null for live OTP; set MOCK_OTP env var only for local dev testing
 };

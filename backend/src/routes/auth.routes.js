@@ -7,6 +7,7 @@ const config = require('../config');
 const { AppUser, EmailOtp } = require('../models');
 const { sendVerificationOtp, sendPasswordResetOtp, sendWelcomeEmail, isConfigured: isMsg91Configured } = require('../services/msg91');
 const { sendPasswordResetOtpEmail } = require('../services/password-reset-email');
+const { getClient: getRedis } = require('../services/redis');
 
 const router = express.Router();
 const MOCK_OTP = config.mockOtp;
@@ -21,31 +22,33 @@ function generateRealOtp() {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
-// In-memory OTP store: phone -> { otp, expiresAt }. TTL = 5 minutes.
-const otpStore = new Map();
-const OTP_TTL_MS = 5 * 60 * 1000;
+const OTP_TTL_SECONDS = 5 * 60;
+const JWT_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
-function storeOtp(phone, otp) {
-  otpStore.set(phone, { otp, expiresAt: Date.now() + OTP_TTL_MS });
+async function issueToken(payload) {
+  const jti = crypto.randomUUID();
+  const token = jwt.sign({ ...payload, jti }, config.jwtSecret, { expiresIn: '7d' });
+  await getRedis().setex(`jti:${jti}`, JWT_TTL_SECONDS, '1');
+  return token;
 }
 
-function verifyStoredOtp(phone, code) {
+async function revokeToken(jti) {
+  if (!jti) return;
+  await getRedis().del(`jti:${jti}`);
+}
+
+async function storeOtp(phone, otp) {
+  await getRedis().setex(`otp:${phone}`, OTP_TTL_SECONDS, otp);
+}
+
+async function verifyStoredOtp(phone, code) {
   if (MOCK_OTP) return code === MOCK_OTP;
-  const entry = otpStore.get(phone);
-  if (!entry) return false;
-  if (Date.now() > entry.expiresAt) { otpStore.delete(phone); return false; }
-  const valid = entry.otp === code;
-  if (valid) otpStore.delete(phone);
+  const stored = await getRedis().get(`otp:${phone}`);
+  if (!stored) return false;
+  const valid = stored === code;
+  if (valid) await getRedis().del(`otp:${phone}`);
   return valid;
 }
-
-// Cleanup expired OTPs every 10 minutes
-setInterval(() => {
-  const now = Date.now();
-  for (const [phone, entry] of otpStore) {
-    if (now > entry.expiresAt) otpStore.delete(phone);
-  }
-}, 10 * 60 * 1000);
 
 // In-memory fallback when DB fails (dev only). Map: phone -> { id, phone, role, rating }
 const devFallbackUsers = new Map();
@@ -93,7 +96,7 @@ router.post('/login', async (req, res) => {
         devFallbackUsers.set(phone, { id, phone, role: dbRole, rating: 0 });
         console.log('[auth] Using in-memory fallback (Firebase not configured). Set FIREBASE_SERVICE_ACCOUNT_PATH.');
         const otp = MOCK_OTP || generateRealOtp();
-        storeOtp(phone, otp);
+        await storeOtp(phone, otp);
         return res.status(200).json({
           success: true,
           message: 'OTP sent',
@@ -106,7 +109,7 @@ router.post('/login', async (req, res) => {
     }
 
     const otp = MOCK_OTP || generateRealOtp();
-    storeOtp(phone, otp);
+    await storeOtp(phone, otp);
     return res.status(200).json({
       success: true,
       message: 'OTP sent',
@@ -138,7 +141,7 @@ router.post('/verify', async (req, res) => {
       });
     }
 
-    if (!verifyStoredOtp(phone, code)) {
+    if (!await verifyStoredOtp(phone, code)) {
       return res.status(401).json({
         success: false,
         message: 'Invalid or expired OTP',
@@ -169,7 +172,7 @@ router.post('/verify', async (req, res) => {
       role: user.role,
     };
 
-    const token = jwt.sign(payload, config.jwtSecret, { expiresIn: '7d' });
+    const token = await issueToken(payload);
 
     const userObj = {
       id: user.id,
@@ -300,7 +303,10 @@ router.post('/signup', async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: 'Account created. Verification OTP sent to your email.',
+      emailSent: sent,
+      message: sent
+        ? 'Account created. Verification OTP sent to your email.'
+        : 'Account created but email delivery failed. Use "Resend OTP" to try again.',
       userId: user.id,
     });
   } catch (err) {
@@ -371,10 +377,8 @@ router.post('/verify-email', async (req, res) => {
     await user.save();
 
     // Issue JWT
-    const token = jwt.sign(
-      { userId: user.id, email: user.email, role: user.role === 'user' ? 'passenger' : user.role, phone: user.phone || '' },
-      config.jwtSecret,
-      { expiresIn: '7d' }
+    const token = await issueToken(
+      { userId: user.id, email: user.email, role: user.role === 'user' ? 'passenger' : user.role, phone: user.phone || '' }
     );
 
     // Send welcome email (non-blocking)
@@ -419,10 +423,8 @@ router.post('/email-login', async (req, res) => {
       return res.status(403).json({ success: false, message: 'Email not verified. Check your inbox for verification OTP.', code: 'email_not_verified' });
     }
 
-    const token = jwt.sign(
-      { userId: user.id, email: user.email, role: user.role === 'user' ? 'passenger' : user.role, phone: user.phone || '' },
-      config.jwtSecret,
-      { expiresIn: '7d' }
+    const token = await issueToken(
+      { userId: user.id, email: user.email, role: user.role === 'user' ? 'passenger' : user.role, phone: user.phone || '' }
     );
 
     return res.json({

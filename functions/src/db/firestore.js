@@ -88,11 +88,17 @@ function _docToObject(snap) {
 }
 
 function _stableDriverIdFromPhone(phone) {
-  // Driver ID must be stable per driver. We derive it from the phone so it never changes.
-  // Format: DRV-XXXXX where XXXXX are last 5 digits of the phone number.
+  // SECURITY FIX: Use SHA-256 hash of full phone digits to prevent ID collisions.
+  // Old code used only last 5 digits → only 100K possible IDs → catastrophic collisions.
+  // New code: SHA-256(full_digits) → first 12 hex chars → 281 trillion possible IDs.
+  const crypto = require('crypto');
   const digits = String(phone || '').replace(/\D/g, '');
-  const last5 = digits.slice(-5).padStart(5, '0');
-  return `DRV-${last5}`;
+  if (!digits || digits.length < 7) {
+    // Fallback: cryptographically random ID for invalid/short phone numbers
+    return `DRV-${crypto.randomBytes(6).toString('hex')}`;
+  }
+  const hash = crypto.createHash('sha256').update(digits).digest('hex');
+  return `DRV-${hash.slice(0, 12)}`;
 }
 
 /**

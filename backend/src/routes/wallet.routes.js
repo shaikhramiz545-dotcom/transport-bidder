@@ -4,6 +4,7 @@
  */
 const express = require('express');
 const { DriverWallet, WalletTransaction, DriverIdentity } = require('../models');
+const { sequelize } = require('../config/db');
 const { calculateCredits } = require('../utils/wallet');
 const { authenticate, requireRole } = require('../utils/auth');
 
@@ -139,24 +140,41 @@ router.post('/scratch-card', async (req, res) => {
     if (authDriverId && requestedDriverId && requestedDriverId !== authDriverId) {
       return res.status(403).json({ error: 'Forbidden' });
     }
-    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-    const [wallet] = await DriverWallet.findOrCreate({
-      where: { driverId },
-      defaults: { driverId, balance: 0 },
-    });
-    if (wallet.lastScratchAt && String(wallet.lastScratchAt).slice(0, 10) === today) {
-      return res.status(400).json({ error: 'already_used_today', message: 'Ya usaste la tarjeta de hoy. Vuelve mañana.' });
+    const today = new Date().toISOString().slice(0, 10);
+    let credits, newBalance;
+    try {
+      await sequelize.transaction(async (t) => {
+        await DriverWallet.findOrCreate({
+          where: { driverId },
+          defaults: { driverId, balance: 0 },
+          transaction: t,
+        });
+        const wallet = await DriverWallet.findOne({
+          where: { driverId },
+          lock: t.LOCK.UPDATE,
+          transaction: t,
+        });
+        if (wallet.lastScratchAt && String(wallet.lastScratchAt).slice(0, 10) === today) {
+          throw Object.assign(new Error('already_used_today'), { isUserError: true, statusCode: 400 });
+        }
+        credits = Math.floor(Math.random() * 10) + 1;
+        const oneYearFromNow = new Date();
+        oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);
+        const newValidUntil = oneYearFromNow.toISOString().slice(0, 10);
+        const currentValid = wallet.creditsValidUntil ? String(wallet.creditsValidUntil).slice(0, 10) : null;
+        const setValidUntil = currentValid && currentValid > newValidUntil ? currentValid : newValidUntil;
+        await wallet.increment('balance', { by: credits, transaction: t });
+        await wallet.update({ lastScratchAt: today, creditsValidUntil: setValidUntil }, { transaction: t });
+        await wallet.reload({ transaction: t });
+        newBalance = wallet.balance;
+      });
+    } catch (err) {
+      if (err.isUserError) {
+        return res.status(err.statusCode).json({ error: err.message, message: 'Ya usaste la tarjeta de hoy. Vuelve mañana.' });
+      }
+      throw err;
     }
-    const credits = Math.floor(Math.random() * 10) + 1; // 1 to 10
-    const oneYearFromNow = new Date();
-    oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);
-    const newValidUntil = oneYearFromNow.toISOString().slice(0, 10);
-    const currentValid = wallet.creditsValidUntil ? String(wallet.creditsValidUntil).slice(0, 10) : null;
-    const setValidUntil = currentValid && currentValid > newValidUntil ? currentValid : newValidUntil;
-    await wallet.increment('balance', { by: credits });
-    await wallet.update({ lastScratchAt: today, creditsValidUntil: setValidUntil });
-    await wallet.reload();
-    return res.json({ credits, newBalance: wallet.balance });
+    return res.json({ credits, newBalance });
   } catch (err) {
     console.error('[wallet] scratch-card', err.message);
     return res.status(500).json({ error: err.message });

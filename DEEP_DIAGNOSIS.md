@@ -43,7 +43,7 @@
 | `src/routes/agency.routes.js` | ✅ Ready | Signup, login, tours CRUD (TravelAgency + Tour models) |
 | `src/routes/wallet.routes.js` | ✅ Ready | Driver wallet, submit transaction |
 | `migrations/001_initial_schema.sql` | ⚠️ Not auto-run | **Error:** Server sirf `sequelize.sync()` chalata hai; **migrations run nahi hoti**. Isliye `users` table (auth ke liye) create hone ke liye migration manually run karni padegi ya sync se pehle |
-| `scripts/run-migrations.js` | ⚠️ No SSL | Manual run: `node scripts/run-migrations.js`. **RDS ke liye:** script mein Pool ko `ssl: { rejectUnauthorized: false }` add karna padega (db.js jaisa) |
+| `scripts/run-migrations.js` | ⚠️ No SSL | Manual run: `node scripts/run-migrations.js`. **RDS ke liye:** script mein Pool ko `ssl: { rejectUnauthorized: true }` add karna padega (db.js jaisa) |
 | `.env.example` | ✅ Ready | PG_*, JWT_SECRET; NODE_ENV, PORT |
 
 **Backend errors summary:**  
