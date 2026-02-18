@@ -233,6 +233,7 @@ const driverDocStorage = multer.diskStorage({
 const uploadDriverDoc = multer({ storage: driverDocStorage, limits: { fileSize: 10 * 1024 * 1024 } }); // 10 MB
 
 const DRIVER_TTL_SECONDS = 120; // Redis key TTL; driver must heartbeat within this window
+const DRIVER_STALE_MS = DRIVER_TTL_SECONDS * 1000; // equivalent stale threshold in ms
 const ONLINE_IDS_KEY = 'drivers:online:ids';
 
 async function _setOnline(id, data) {
@@ -561,7 +562,7 @@ router.get('/resolve-id', requireRole('driver'), async (req, res) => {
 
 // User app: count drivers within radius, filtered by vehicle type
 // Query: lat, lng, vehicleType (optional, e.g. taxi_std, moto, truck_m), radiusKm (optional override)
-router.get('/nearby', requireRole('passenger'), (req, res) => {
+router.get('/nearby', requireRole('passenger'), async (req, res) => {
   const lat = parseFloat(req.query.lat);
   const lng = parseFloat(req.query.lng);
   const rideVehicleType = req.query.vehicleType || null;
@@ -575,11 +576,9 @@ router.get('/nearby', requireRole('passenger'), (req, res) => {
     ? getRadiusForVehicle(driverCategory)
     : Math.min(parseFloat(req.query.radiusKm) || 6, 30);
 
-  const now = Date.now();
+  const allDrivers = await _getOnlineAll(); // Redis TTL already filters stale entries
   let count = 0;
-  for (const [, v] of onlineDrivers.entries()) {
-    if (now - v.updatedAt > DRIVER_STALE_MS) continue;
-    // Filter by vehicle type if specified
+  for (const v of allDrivers) {
     if (driverCategory) {
       const dvt = (v.vehicleType || 'car').toLowerCase();
       if (dvt !== driverCategory) continue;
@@ -1322,10 +1321,10 @@ router.get('/requests', requireRole('driver'), async (req, res) => {
       }
     }
 
-    // Get this driver's live location and vehicle type from onlineDrivers map
-    const driverInfo = driverId ? onlineDrivers.get(driverId) : null;
-    const now = Date.now();
-    const isOnline = driverInfo && (now - driverInfo.updatedAt <= DRIVER_STALE_MS);
+    // Get this driver's live location and vehicle type from Redis
+    const driverRaw = driverId ? await getRedis().get(`driver:online:${driverId}`) : null;
+    const driverInfo = driverRaw ? (() => { try { return JSON.parse(driverRaw); } catch (_) { return null; } })() : null;
+    const isOnline = !!driverInfo; // Redis TTL already handles staleness
 
     if (!isOnline) {
       // Driver not online or stale – no requests
@@ -1504,7 +1503,7 @@ module.exports = router;
 module.exports.getOnlineDriverCount = getOnlineDriverCount;
 module.exports.getOnlineDriversByVehicle = getOnlineDriversByVehicle;
 module.exports.getOnlineDriversList = getOnlineDriversList;
-module.exports.onlineDrivers = onlineDrivers;
+
 module.exports.DRIVER_STALE_MS = DRIVER_STALE_MS;
 module.exports.rideVehicleToDriverCategory = rideVehicleToDriverCategory;
 module.exports.normalizeDriverCategory = normalizeDriverCategory;
