@@ -384,7 +384,7 @@ router.get('/health-status', authMiddleware, async (req, res) => {
   try {
     const dlocalConfigured = dlocal.isConfigured();
     if (!dlocalConfigured) {
-      result.services.paymentGateway = { configured: false, ok: null, msg: 'DLOCAL_API_KEY or DLOCAL_SECRET_KEY missing from environment' };
+      result.services.paymentGateway = { configured: false, ok: true, msg: 'Not configured (optional)' };
     } else {
       const pingRes = await axios.get(dlocal.getBaseUrl(), { timeout: 5000, validateStatus: () => true });
       result.services.paymentGateway = { configured: true, ok: pingRes.status < 500, msg: pingRes.status < 500 ? 'OK' : `HTTP ${pingRes.status}` };
@@ -418,19 +418,46 @@ router.get('/health-status', authMiddleware, async (req, res) => {
     result.stats.pendingWalletRecharge = 0;
     result.stats.pendingPayouts = 0;
     result.stats.pendingTourBookings = 0;
+    result.stats.totalUsers = 0;
+    result.stats.totalDrivers = 0;
+    result.stats.usersToday = 0;
+    result.stats.driversToday = 0;
+    result.stats.totalWalletBalance = 0;
+    result.stats.completedRidesToday = 0;
+    result.stats.totalRevenue = 0;
     try {
-      result.stats.pendingVerifications = await DriverVerification.count({ where: { status: 'pending' } });
-      result.stats.pendingRides = await Ride.count({ where: { status: 'pending' } });
-      result.stats.totalRides = await Ride.count();
-      result.stats.activeRides = await Ride.count({
-        where: { status: { [Op.in]: ['driver_arrived', 'ride_started'] } },
-      });
-      result.stats.pendingWalletRecharge = await WalletTransaction.count({ where: { status: 'pending' } });
-      result.stats.pendingPayouts = await AgencyPayoutRequest.count({ where: { status: 'pending' } });
-      result.stats.pendingTourBookings = await TourBooking.count({
-        where: { status: { [Op.in]: ['pending', 'confirmed'] } },
-      });
+      const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+      const [pendingV, pendingR, totalR, activeR, pendingW, pendingP, pendingTB,
+             totalU, totalD, usersT, driversT, completedT, revenueRes] = await Promise.all([
+        DriverVerification.count({ where: { status: 'pending' } }),
+        Ride.count({ where: { status: 'pending' } }),
+        Ride.count(),
+        Ride.count({ where: { status: { [Op.in]: ['accepted', 'started'] } } }),
+        WalletTransaction.count({ where: { status: 'pending' } }),
+        AgencyPayoutRequest.count({ where: { status: 'pending' } }),
+        TourBooking.count({ where: { status: { [Op.in]: ['pending', 'confirmed'] } } }),
+        AppUser.count(),
+        pool.query('SELECT COUNT(*)::int AS c FROM drivers'),
+        AppUser.count({ where: { createdAt: { [Op.gte]: todayStart } } }),
+        pool.query('SELECT COUNT(*)::int AS c FROM drivers WHERE created_at >= $1', [todayStart]),
+        Ride.count({ where: { status: 'completed', updatedAt: { [Op.gte]: todayStart } } }),
+        pool.query('SELECT COALESCE(SUM("amountSoles"),0)::float AS total FROM "WalletTransactions" WHERE status = $1', ['completed']),
+      ]);
+      result.stats.pendingVerifications = pendingV;
+      result.stats.pendingRides = pendingR;
+      result.stats.totalRides = totalR;
+      result.stats.activeRides = activeR;
+      result.stats.pendingWalletRecharge = pendingW;
+      result.stats.pendingPayouts = pendingP;
+      result.stats.pendingTourBookings = pendingTB;
+      result.stats.totalUsers = totalU;
+      result.stats.totalDrivers = totalD.rows[0]?.c ?? 0;
+      result.stats.usersToday = usersT;
+      result.stats.driversToday = driversT.rows[0]?.c ?? 0;
+      result.stats.completedRidesToday = completedT;
+      result.stats.totalRevenue = revenueRes.rows[0]?.total ?? 0;
     } catch (dbErr) {
+      console.warn('[health-status] stats query error:', dbErr.message);
       try {
         const fsList = await firestore.listDriverVerifications();
         result.stats.pendingVerifications = fsList.filter((d) => (d.status || 'pending') === 'pending').length;
@@ -440,6 +467,8 @@ router.get('/health-status', authMiddleware, async (req, res) => {
     result.stats = {
       onlineDrivers: 0, pendingVerifications: 0, pendingRides: 0, totalRides: 0,
       activeRides: 0, pendingWalletRecharge: 0, pendingPayouts: 0, pendingTourBookings: 0,
+      totalUsers: 0, totalDrivers: 0, usersToday: 0, driversToday: 0,
+      completedRidesToday: 0, totalRevenue: 0,
     };
   }
 
@@ -466,6 +495,96 @@ router.get('/health-history', authMiddleware, async (_req, res) => {
     return res.json({ history: rows });
   } catch (e) {
     return res.status(500).json({ error: e.message, history: [] });
+  }
+});
+
+/** GET /api/admin/live-stats – Real-time business metrics for the admin dashboard. */
+router.get('/live-stats', authMiddleware, async (_req, res) => {
+  try {
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - 7); weekStart.setHours(0, 0, 0, 0);
+    const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+
+    const [
+      totalUsers, totalDrivers, usersToday, usersThisWeek, usersThisMonth,
+      driversRes, driversToday, driversThisWeek,
+      totalRides, activeRides, completedRides, cancelledRides,
+      ridesThisWeek, ridesThisMonth, completedToday,
+      pendingVerifications, approvedDrivers, rejectedDrivers,
+      pendingRides, pendingWalletRecharge, pendingPayouts,
+      revenueTotal, revenueToday, revenueThisMonth,
+      onlineDrivers, onlineByVehicle,
+    ] = await Promise.all([
+      AppUser.count(),
+      pool.query('SELECT COUNT(*)::int AS c FROM drivers'),
+      AppUser.count({ where: { createdAt: { [Op.gte]: todayStart } } }),
+      AppUser.count({ where: { createdAt: { [Op.gte]: weekStart } } }),
+      AppUser.count({ where: { createdAt: { [Op.gte]: monthStart } } }),
+      pool.query('SELECT COUNT(*)::int AS c FROM drivers'),
+      pool.query('SELECT COUNT(*)::int AS c FROM drivers WHERE created_at >= $1', [todayStart]),
+      pool.query('SELECT COUNT(*)::int AS c FROM drivers WHERE created_at >= $1', [weekStart]),
+      pool.query('SELECT COUNT(*)::int AS c FROM rides'),
+      pool.query("SELECT COUNT(*)::int AS c FROM rides WHERE status = 'started'"),
+      pool.query("SELECT COUNT(*)::int AS c FROM rides WHERE status = 'completed'"),
+      pool.query("SELECT COUNT(*)::int AS c FROM rides WHERE status = 'cancelled'"),
+      pool.query('SELECT COUNT(*)::int AS c FROM rides WHERE created_at >= $1', [weekStart]),
+      pool.query('SELECT COUNT(*)::int AS c FROM rides WHERE created_at >= $1', [monthStart]),
+      pool.query("SELECT COUNT(*)::int AS c FROM rides WHERE status = 'completed' AND updated_at >= $1", [todayStart]),
+      DriverVerification.count({ where: { status: 'pending' } }),
+      DriverVerification.count({ where: { status: 'approved' } }),
+      DriverVerification.count({ where: { status: 'rejected' } }),
+      pool.query("SELECT COUNT(*)::int AS c FROM rides WHERE status IN ('searching','bidding','accepted')"),
+      WalletTransaction.count({ where: { status: 'pending' } }),
+      AgencyPayoutRequest.count({ where: { status: 'pending' } }),
+      pool.query('SELECT COALESCE(SUM("amountSoles"),0)::float AS total FROM "WalletTransactions" WHERE status = $1', ['completed']),
+      pool.query('SELECT COALESCE(SUM("amountSoles"),0)::float AS total FROM "WalletTransactions" WHERE status = $1 AND "createdAt" >= $2', ['completed', todayStart]),
+      pool.query('SELECT COALESCE(SUM("amountSoles"),0)::float AS total FROM "WalletTransactions" WHERE status = $1 AND "createdAt" >= $2', ['completed', monthStart]),
+      Promise.resolve(getOnlineDriverCount()),
+      Promise.resolve(getOnlineDriversByVehicle()),
+    ]);
+
+    return res.json({
+      timestamp: new Date().toISOString(),
+      users: {
+        total: totalUsers,
+        today: usersToday,
+        thisWeek: usersThisWeek,
+        thisMonth: usersThisMonth,
+      },
+      drivers: {
+        total: driversRes.rows[0]?.c ?? 0,
+        today: driversToday.rows[0]?.c ?? 0,
+        thisWeek: driversThisWeek.rows[0]?.c ?? 0,
+        online: onlineDrivers,
+        byVehicle: onlineByVehicle,
+        pendingVerification: pendingVerifications,
+        approved: approvedDrivers,
+        rejected: rejectedDrivers,
+      },
+      rides: {
+        total: totalRides.rows[0]?.c ?? 0,
+        active: activeRides.rows[0]?.c ?? 0,
+        completed: completedRides.rows[0]?.c ?? 0,
+        cancelled: cancelledRides.rows[0]?.c ?? 0,
+        pending: pendingRides.rows[0]?.c ?? 0,
+        completedToday: completedToday.rows[0]?.c ?? 0,
+        thisWeek: ridesThisWeek.rows[0]?.c ?? 0,
+        thisMonth: ridesThisMonth.rows[0]?.c ?? 0,
+      },
+      revenue: {
+        total: revenueTotal.rows[0]?.total ?? 0,
+        today: revenueToday.rows[0]?.total ?? 0,
+        thisMonth: revenueThisMonth.rows[0]?.total ?? 0,
+      },
+      pending: {
+        walletRecharge: pendingWalletRecharge,
+        payouts: pendingPayouts,
+        driverVerifications: pendingVerifications,
+      },
+    });
+  } catch (e) {
+    console.error('[live-stats] error:', e.message);
+    return res.status(500).json({ error: e.message });
   }
 });
 
