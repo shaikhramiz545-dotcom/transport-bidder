@@ -1,41 +1,62 @@
 /**
- * MSG91 – transactional email service for OTP & notifications.
- * Used for: account verification, forgot-password, general notifications.
+ * Email service for OTP & notifications.
+ * Primary: AWS SES (production)
+ * Fallback: SMTP relay (nodemailer)
  *
  * Env vars:
- *   MSG91_AUTH_KEY      – Auth key from MSG91 dashboard
- *   MSG91_FROM_EMAIL    – verified sender (e.g. noreply@transportbidder.com)
- *   MSG91_FROM_NAME     – display name (e.g. TransportBidder)
- *   MSG91_DOMAIN        – verified domain in MSG91 (e.g. transportbidder.com)
- *   MSG91_TEMPLATE_ID   – (optional) only set if you have a verified template
+ *   AWS_SES_REGION      – SES region (default: ap-south-1)
+ *   SES_FROM_EMAIL      – verified sender (e.g. noreply@transportbidder.com)
+ *   SES_FROM_NAME       – display name (e.g. TransportBidder)
  *
- * SMTP fallback (used when MSG91 fails or AUTH_KEY not set):
+ * SMTP fallback (used when SES fails or in local dev):
  *   SMTP_HOST / SMTP_PORT / SMTP_SECURE / SMTP_USER / SMTP_PASS / MAIL_FROM
  */
 
+const { SESClient, SendEmailCommand } = require('@aws-sdk/client-ses');
 const nodemailer = require('nodemailer');
 
-const API_URL = 'https://control.msg91.com/api/v5/email/send';
-const AUTH_KEY = process.env.MSG91_AUTH_KEY || '';
-const FROM_EMAIL = process.env.MSG91_FROM_EMAIL || 'noreply@notification.transportbidder.com';
-const FROM_NAME = process.env.MSG91_FROM_NAME || 'TransportBidder';
-const DOMAIN = process.env.MSG91_DOMAIN || 'notification.transportbidder.com';
-const OTP_TEMPLATE_ID = process.env.MSG91_TEMPLATE_ID || 'global_otp';
-const WELCOME_TEMPLATE_ID = 'template_13_02_2026_16_02';
+const SES_REGION = process.env.AWS_SES_REGION || process.env.AWS_REGION || 'ap-south-1';
+const FROM_EMAIL = process.env.SES_FROM_EMAIL || process.env.MSG91_FROM_EMAIL || 'noreply@transportbidder.com';
+const FROM_NAME = process.env.SES_FROM_NAME || process.env.MSG91_FROM_NAME || 'TransportBidder';
 
-function isConfigured() {
-  return !!AUTH_KEY;
+let sesClient = null;
+function getSesClient() {
+  if (!sesClient) {
+    sesClient = new SESClient({ region: SES_REGION });
+  }
+  return sesClient;
 }
 
-/**
- * Send an email via MSG91 Email API v5.
- * @param {string} toEmail
- * @param {string} toName
- * @param {string} subject
- * @param {string} htmlBody
- * @returns {Promise<boolean>}
- */
-/** Send via SMTP (nodemailer) — used as fallback when MSG91 fails. */
+function isConfigured() {
+  // SES uses IAM credentials from environment/instance role — always configured on AWS
+  return !!(process.env.AWS_ACCESS_KEY_ID || process.env.AWS_EXECUTION_ENV || process.env.ECS_CONTAINER_METADATA_URI);
+}
+
+/** Send via AWS SES */
+async function sendEmailSes(toEmail, subject, htmlBody) {
+  try {
+    const client = getSesClient();
+    const command = new SendEmailCommand({
+      Source: `${FROM_NAME} <${FROM_EMAIL}>`,
+      Destination: { ToAddresses: [toEmail] },
+      Message: {
+        Subject: { Data: subject, Charset: 'UTF-8' },
+        Body: {
+          Html: { Data: htmlBody, Charset: 'UTF-8' },
+          Text: { Data: htmlBody.replace(/<[^>]+>/g, ''), Charset: 'UTF-8' },
+        },
+      },
+    });
+    const result = await client.send(command);
+    console.log('[ses] email sent to', toEmail, 'MessageId:', result.MessageId);
+    return true;
+  } catch (err) {
+    console.error('[ses] send failed:', err.message, '— trying SMTP fallback');
+    return false;
+  }
+}
+
+/** Send via SMTP (nodemailer) — fallback when SES fails or in local dev. */
 async function sendEmailSmtp(toEmail, subject, htmlBody) {
   const host = process.env.SMTP_HOST;
   if (!host) return false;
@@ -47,48 +68,24 @@ async function sendEmailSmtp(toEmail, subject, htmlBody) {
       auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
     });
     await transporter.sendMail({
-      from: process.env.MAIL_FROM || FROM_EMAIL,
+      from: process.env.MAIL_FROM || `${FROM_NAME} <${FROM_EMAIL}>`,
       to: toEmail,
       subject,
       html: htmlBody,
       text: htmlBody.replace(/<[^>]+>/g, ''),
     });
-    console.log('[smtp-fallback] email sent to', toEmail);
+    console.log('[smtp] email sent to', toEmail);
     return true;
   } catch (err) {
-    console.error('[smtp-fallback] send failed:', err.message);
+    console.error('[smtp] send failed:', err.message);
     return false;
   }
 }
 
-async function sendEmail(toEmail, toName, subject, htmlBody, variables = {}, templateId = OTP_TEMPLATE_ID) {
-  // Primary: MSG91 HTTP API with verified template
-  if (AUTH_KEY && templateId) {
-    const payload = {
-      recipients: [{ to: [{ email: toEmail, name: toName || toEmail }], variables }],
-      from: { email: FROM_EMAIL, name: FROM_NAME },
-      domain: DOMAIN,
-      subject,
-      template_id: templateId,
-    };
-
-    try {
-      const res = await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'authkey': AUTH_KEY },
-        body: JSON.stringify(payload),
-      });
-      if (res.ok) {
-        const data = await res.json().catch(() => ({}));
-        console.log('[msg91] email sent to', toEmail, data);
-        return true;
-      }
-      const errText = await res.text();
-      console.error(`[msg91] HTTP API failed (${res.status}):`, errText, '— trying SMTP fallback');
-    } catch (err) {
-      console.error('[msg91] HTTP API error:', err.message, '— trying SMTP fallback');
-    }
-  }
+async function sendEmail(toEmail, toName, subject, htmlBody) {
+  // Primary: AWS SES
+  const sesResult = await sendEmailSes(toEmail, subject, htmlBody);
+  if (sesResult) return true;
 
   // Fallback: SMTP relay
   const smtpResult = await sendEmailSmtp(toEmail, subject, htmlBody);
@@ -113,10 +110,7 @@ async function sendVerificationOtp(toEmail, otp, role = 'user') {
     <div style="font-size:32px;font-weight:700;letter-spacing:6px;text-align:center;padding:16px;background:#f5f5f5;border-radius:8px;margin:16px 0">${otp}</div>
     <p style="color:#666;font-size:14px">This code expires in 10 minutes. Do not share it with anyone.</p>
   </div>`;
-  return sendEmail(toEmail, '', subject, htmlBody, {
-    otp,
-    company_name: appName,
-  }, OTP_TEMPLATE_ID);
+  return sendEmail(toEmail, '', subject, htmlBody);
 }
 
 /**
@@ -140,62 +134,27 @@ async function sendPasswordResetOtp(toEmail, otp, scope = 'user') {
     <div style="font-size:32px;font-weight:700;letter-spacing:6px;text-align:center;padding:16px;background:#f5f5f5;border-radius:8px;margin:16px 0">${otp}</div>
     <p style="color:#666;font-size:14px">This code expires in 10 minutes. If you didn't request this, ignore this email.</p>
   </div>`;
-  return sendEmail(toEmail, '', subject, htmlBody, {
-    otp,
-    company_name: `TransportBidder ${panelName}`,
-  }, OTP_TEMPLATE_ID);
+  return sendEmail(toEmail, '', subject, htmlBody);
 }
 
 /**
  * Send welcome email after successful signup/verification.
- * Uses MSG91 template: template_13_02_2026_16_02
  * @param {string} toEmail
  * @param {string} userName
  * @param {'user'|'driver'} role
  */
 async function sendWelcomeEmail(toEmail, userName, role = 'user') {
-  if (!AUTH_KEY) {
-    console.error('[msg91] MSG91_AUTH_KEY not set; welcome email skipped.');
-    return false;
-  }
-
   const appName = role === 'driver' ? 'TransportBidder Driver' : 'TransportBidder';
-  const body = {
-    recipients: [
-      {
-        to: [{ email: toEmail, name: userName || toEmail }],
-        variables: {
-          name: userName || 'User',
-          company_name: appName,
-        },
-      },
-    ],
-    from: { email: FROM_EMAIL, name: FROM_NAME },
-    domain: DOMAIN,
-    template_id: WELCOME_TEMPLATE_ID,
-  };
-
-  try {
-    const res = await fetch(API_URL, {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'authkey': AUTH_KEY,
-      },
-      body: JSON.stringify(body),
-    });
-    if (res.ok) {
-      console.log('[msg91] welcome email sent to', toEmail);
-      return true;
-    }
-    const errText = await res.text();
-    console.error(`[msg91] welcome email failed (${res.status}):`, errText);
-    return false;
-  } catch (err) {
-    console.error('[msg91] welcome email error:', err.message);
-    return false;
-  }
+  const name = userName || 'User';
+  const subject = `Welcome to ${appName}!`;
+  const htmlBody = `<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px">
+    <h2 style="color:#FF5F00">${appName}</h2>
+    <p>Hi ${name},</p>
+    <p>Welcome to ${appName}! Your account has been verified successfully.</p>
+    <p>You can now start using the app to book rides, track drivers, and more.</p>
+    <p style="color:#666;font-size:14px">If you have any questions, contact us at support@transportbidder.com</p>
+  </div>`;
+  return sendEmail(toEmail, name, subject, htmlBody);
 }
 
 module.exports = { isConfigured, sendEmail, sendVerificationOtp, sendPasswordResetOtp, sendWelcomeEmail };

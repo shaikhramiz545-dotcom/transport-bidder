@@ -13,5 +13,5 @@ final String kApiBaseUrl = () {
     defaultValue: '',
   );
   if (override.isNotEmpty) return override;
-  return 'https://tbidder-backend-738469456510.us-central1.run.app';
+  return 'http://tbidder-prod.eba-tyxfmwej.ap-south-1.elasticbeanstalk.com';
 }();
