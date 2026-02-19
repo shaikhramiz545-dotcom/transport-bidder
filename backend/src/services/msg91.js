@@ -20,7 +20,8 @@ const AUTH_KEY = process.env.MSG91_AUTH_KEY || '';
 const FROM_EMAIL = process.env.MSG91_FROM_EMAIL || 'noreply@notification.transportbidder.com';
 const FROM_NAME = process.env.MSG91_FROM_NAME || 'TransportBidder';
 const DOMAIN = process.env.MSG91_DOMAIN || 'notification.transportbidder.com';
-const TEMPLATE_ID = process.env.MSG91_TEMPLATE_ID || '';  // leave empty unless you have a verified template
+const OTP_TEMPLATE_ID = process.env.MSG91_TEMPLATE_ID || 'global_otp';
+const WELCOME_TEMPLATE_ID = 'template_13_02_2026_16_02';
 
 function isConfigured() {
   return !!AUTH_KEY;
@@ -60,21 +61,15 @@ async function sendEmailSmtp(toEmail, subject, htmlBody) {
   }
 }
 
-async function sendEmail(toEmail, toName, subject, htmlBody, variables = {}) {
-  // Primary: SMTP relay (smtp.mailer91.com or any configured SMTP)
-  // MSG91 HTTP API requires template_id which most setups don't have,
-  // so SMTP is the reliable default path.
-  const smtpResult = await sendEmailSmtp(toEmail, subject, htmlBody);
-  if (smtpResult) return true;
-
-  // Fallback: MSG91 HTTP API (only works with template_id)
-  if (AUTH_KEY && TEMPLATE_ID) {
+async function sendEmail(toEmail, toName, subject, htmlBody, variables = {}, templateId = OTP_TEMPLATE_ID) {
+  // Primary: MSG91 HTTP API with verified template
+  if (AUTH_KEY && templateId) {
     const payload = {
       recipients: [{ to: [{ email: toEmail, name: toName || toEmail }], variables }],
       from: { email: FROM_EMAIL, name: FROM_NAME },
       domain: DOMAIN,
       subject,
-      template_id: TEMPLATE_ID,
+      template_id: templateId,
     };
 
     try {
@@ -89,11 +84,15 @@ async function sendEmail(toEmail, toName, subject, htmlBody, variables = {}) {
         return true;
       }
       const errText = await res.text();
-      console.error(`[msg91] HTTP API failed (${res.status}):`, errText);
+      console.error(`[msg91] HTTP API failed (${res.status}):`, errText, '— trying SMTP fallback');
     } catch (err) {
-      console.error('[msg91] HTTP API error:', err.message);
+      console.error('[msg91] HTTP API error:', err.message, '— trying SMTP fallback');
     }
   }
+
+  // Fallback: SMTP relay
+  const smtpResult = await sendEmailSmtp(toEmail, subject, htmlBody);
+  if (smtpResult) return true;
 
   console.error('[email] all methods failed for', toEmail);
   return false;
@@ -117,7 +116,7 @@ async function sendVerificationOtp(toEmail, otp, role = 'user') {
   return sendEmail(toEmail, '', subject, htmlBody, {
     otp,
     company_name: appName,
-  });
+  }, OTP_TEMPLATE_ID);
 }
 
 /**
@@ -144,7 +143,7 @@ async function sendPasswordResetOtp(toEmail, otp, scope = 'user') {
   return sendEmail(toEmail, '', subject, htmlBody, {
     otp,
     company_name: `TransportBidder ${panelName}`,
-  });
+  }, OTP_TEMPLATE_ID);
 }
 
 /**
@@ -173,7 +172,7 @@ async function sendWelcomeEmail(toEmail, userName, role = 'user') {
     ],
     from: { email: FROM_EMAIL, name: FROM_NAME },
     domain: DOMAIN,
-    template_id: 'template_13_02_2026_16_02',
+    template_id: WELCOME_TEMPLATE_ID,
   };
 
   try {
