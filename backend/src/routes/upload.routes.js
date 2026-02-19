@@ -22,10 +22,8 @@ function authMiddleware(req, res, next) {
   }
 }
 
-router.use(authMiddleware);
-
 /** POST /api/agency/upload – now disabled (no files stored). */
-router.post('/upload', (_req, res) => {
+router.post('/upload', authMiddleware, (_req, res) => {
   return res.status(410).json({
     error: 'File uploads are disabled. Media is preview-only and not stored on the server.',
   });
