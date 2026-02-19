@@ -131,6 +131,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _driverArrivedNotified = false;
   List<Map<String, dynamic>> _rideMessages = [];
   String? _driverPhone;
+  double? _agreedFare;
   int? _nearbyDriversCount;
   /// Shown when auto location request didn't prompt (e.g. web needs user gesture). User taps [Allow] to request.
   bool _showLocationPrompt = false;
@@ -1061,6 +1062,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _currentRideStatus = null;
     _rideMessages = [];
     _driverPhone = null;
+    _agreedFare = null;
     _stopListeningToDriver();
     _clearPersistedRide();
   }
@@ -1107,26 +1109,145 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _showRideCompleteAndRating() async {
     if (!mounted) return;
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: Text(_t('thanks_ride_complete_title'), style: GoogleFonts.poppins(fontWeight: FontWeight.w700)),
-        content: Text(
-          _t('thanks_ride_complete_body'),
-          style: GoogleFonts.poppins(fontSize: 16),
-        ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            style: FilledButton.styleFrom(backgroundColor: _kNeonOrange),
-            child: Text(_t('ok'), style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
-          ),
-        ],
-      ),
-    );
+    await _showPaymentConfirmationSheet();
     if (!mounted) return;
     await _showRatingSheet();
+  }
+
+  Future<void> _showPaymentConfirmationSheet() async {
+    if (!mounted) return;
+    final fare = _agreedFare;
+    final pickup = _pickupDescription.isNotEmpty ? _pickupDescription : _t('origen');
+    final drop = _dropDescription.isNotEmpty ? _dropDescription : _t('destino');
+    final vehicle = _selectedVehicle?.label ?? '';
+    await showModalBottomSheet<void>(
+      context: context,
+      isDismissible: false,
+      enableDrag: false,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.fromLTRB(24, 24, 24, MediaQuery.of(ctx).viewInsets.bottom + 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+            ),
+            const SizedBox(height: 20),
+            Center(
+              child: Container(
+                width: 64, height: 64,
+                decoration: BoxDecoration(color: Colors.green.shade50, shape: BoxShape.circle),
+                child: Icon(Icons.check_circle_rounded, color: Colors.green.shade600, size: 40),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              _t('ride_complete_title'),
+              style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.w700),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _t('ride_complete_subtitle'),
+              style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey.shade600),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.grey.shade200),
+              ),
+              child: Column(
+                children: [
+                  if (fare != null) ...[
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(_t('payment_amount'), style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey.shade600)),
+                        Text('S/ ${fare.toStringAsFixed(2)}', style: GoogleFonts.poppins(fontSize: 22, fontWeight: FontWeight.w800, color: _kNeonOrange)),
+                      ],
+                    ),
+                    const Divider(height: 20),
+                  ],
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(_t('payment_method'), style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey.shade600)),
+                      Row(children: [
+                        Icon(Icons.payments_outlined, size: 18, color: Colors.grey.shade700),
+                        const SizedBox(width: 4),
+                        Text(_t('cash'), style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600)),
+                      ]),
+                    ],
+                  ),
+                  if (vehicle.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(_t('vehicle'), style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey.shade600)),
+                        Text(vehicle, style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(_t('origen'), style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey.shade500)),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(pickup, style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.end)),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(_t('destino'), style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey.shade500)),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(drop, style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.end)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(color: Colors.amber.shade50, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.amber.shade200)),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, size: 18, color: Colors.amber.shade800),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(_t('cash_payment_note'), style: GoogleFonts.poppins(fontSize: 12, color: Colors.amber.shade900))),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () => Navigator.of(ctx).pop(),
+                icon: const Icon(Icons.check_rounded, size: 20),
+                label: Text(_t('paid_in_cash'), style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w700)),
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.green.shade600,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _showRatingSheet() async {
@@ -2546,7 +2667,7 @@ class _HomeScreenState extends State<HomeScreen> {
             vehicleLabel: _searchingVehicleLabel,
             onCancel: () => setState(() { _isSearching = false; _driverCounterPrice = null; }),
             onDriverAccepted: (driverName) {
-              setState(() { _isSearching = false; _driverCounterPrice = null; });
+              setState(() { _isSearching = false; _driverCounterPrice = null; _agreedFare = _userBidPrice ?? _estimatedPrice; });
               if (!mounted) return;
               if (_currentRideId != null && _currentRideId!.isNotEmpty) {
                 _startDriverLocationPolling(_currentRideId!);
@@ -2561,7 +2682,7 @@ class _HomeScreenState extends State<HomeScreen> {
             },
             onDriverCounterBid: (price) => setState(() => _driverCounterPrice = price),
             onAcceptCounter: (price) {
-              setState(() { _isSearching = false; _driverCounterPrice = null; });
+              setState(() { _isSearching = false; _driverCounterPrice = null; _agreedFare = price; });
               if (!mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text(_t('counter_accepted_msg', {'price': price.toStringAsFixed(2)}), style: GoogleFonts.poppins(fontWeight: FontWeight.w600)), backgroundColor: Colors.green),
