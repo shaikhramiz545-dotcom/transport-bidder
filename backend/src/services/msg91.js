@@ -61,17 +61,21 @@ async function sendEmailSmtp(toEmail, subject, htmlBody) {
 }
 
 async function sendEmail(toEmail, toName, subject, htmlBody, variables = {}) {
-  // Try MSG91 first
-  if (AUTH_KEY) {
+  // Primary: SMTP relay (smtp.mailer91.com or any configured SMTP)
+  // MSG91 HTTP API requires template_id which most setups don't have,
+  // so SMTP is the reliable default path.
+  const smtpResult = await sendEmailSmtp(toEmail, subject, htmlBody);
+  if (smtpResult) return true;
+
+  // Fallback: MSG91 HTTP API (only works with template_id)
+  if (AUTH_KEY && TEMPLATE_ID) {
     const payload = {
       recipients: [{ to: [{ email: toEmail, name: toName || toEmail }], variables }],
       from: { email: FROM_EMAIL, name: FROM_NAME },
       domain: DOMAIN,
       subject,
-      body: { type: 'text/html', data: htmlBody },
+      template_id: TEMPLATE_ID,
     };
-    // Only include template_id when explicitly configured (avoid conflict with custom body)
-    if (TEMPLATE_ID) payload.template_id = TEMPLATE_ID;
 
     try {
       const res = await fetch(API_URL, {
@@ -85,16 +89,14 @@ async function sendEmail(toEmail, toName, subject, htmlBody, variables = {}) {
         return true;
       }
       const errText = await res.text();
-      console.error(`[msg91] send failed (${res.status}):`, errText, '— trying SMTP fallback');
+      console.error(`[msg91] HTTP API failed (${res.status}):`, errText);
     } catch (err) {
-      console.error('[msg91] send error:', err.message, '— trying SMTP fallback');
+      console.error('[msg91] HTTP API error:', err.message);
     }
-  } else {
-    console.warn('[msg91] MSG91_AUTH_KEY not set — trying SMTP fallback');
   }
 
-  // SMTP fallback
-  return sendEmailSmtp(toEmail, subject, htmlBody);
+  console.error('[email] all methods failed for', toEmail);
+  return false;
 }
 
 /**
