@@ -227,33 +227,31 @@ router.get('/health-status', authMiddleware, async (req, res) => {
     result.services.firestore = { configured: false, ok: false, msg: e.message || 'Configuration error' };
   }
 
-  // MSG91 (Email OTP for account verification + password reset)
+  // Email (AWS SES primary + SMTP fallback)
   try {
-    const msg91Configured = require('../services/msg91').isConfigured();
-    if (!msg91Configured) {
-      result.services.msg91 = { configured: false, ok: false, msg: 'MSG91_AUTH_KEY not set' };
-    } else {
-      // Validate MSG91 by pinging their API with the auth key
+    const nodemailer = require('nodemailer');
+    const smtpHost = process.env.SMTP_HOST;
+    const sesRegion = process.env.AWS_SES_REGION || process.env.AWS_REGION || 'ap-south-1';
+    const sesKey = process.env.AWS_ACCESS_KEY_ID;
+    const sesConfigured = !!(sesKey || process.env.AWS_EXECUTION_ENV || process.env.ECS_CONTAINER_METADATA_URI);
+    if (smtpHost) {
       try {
-        const msg91Key = process.env.MSG91_AUTH_KEY || '';
-        const pingRes = await axios.get('https://control.msg91.com/api/v5/report/mail/domain/list', {
-          headers: { authkey: msg91Key },
-          timeout: 5000,
+        const transporter = nodemailer.createTransport({
+          host: smtpHost,
+          port: parseInt(process.env.SMTP_PORT, 10) || 587,
+          secure: process.env.SMTP_SECURE === 'true',
+          auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
         });
-        const ok = pingRes.status < 400;
-        result.services.msg91 = { configured: true, ok, msg: ok ? 'OK' : `HTTP ${pingRes.status}` };
-      } catch (msg91Err) {
-        // If ping fails but key is set, still mark as configured but warn
-        const status = msg91Err.response?.status;
-        if (status === 401 || status === 403) {
-          result.services.msg91 = { configured: true, ok: false, msg: 'Invalid AUTH_KEY' };
-        } else {
-          result.services.msg91 = { configured: true, ok: true, msg: 'Configured (API unreachable for validation)' };
-        }
+        await transporter.verify();
+        result.services.msg91 = { configured: true, ok: true, msg: `AWS SES (${sesRegion}) + SMTP OK (${smtpHost})` };
+      } catch (smtpErr) {
+        result.services.msg91 = { configured: sesConfigured, ok: sesConfigured, msg: sesConfigured ? `AWS SES (${sesRegion}) active; SMTP fallback failed: ${smtpErr.message}` : `SMTP failed: ${smtpErr.message}` };
       }
+    } else {
+      result.services.msg91 = { configured: sesConfigured, ok: sesConfigured, msg: sesConfigured ? `AWS SES (${sesRegion}) configured` : 'No email provider configured' };
     }
   } catch (e) {
-    result.services.msg91 = { configured: false, ok: false, msg: e.message || 'Configuration error' };
+    result.services.msg91 = { configured: false, ok: false, msg: e.message || 'Email config error' };
   }
 
   // External: Places & Directions
