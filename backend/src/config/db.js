@@ -6,13 +6,15 @@ const config = require('./index');
 console.log('[DB] Connecting to host:', config.pg.host, config.pg.ssl ? '(SSL)' : '(no SSL, local)');
 
 const useSsl = config.pg.ssl === true;
+// RDS uses its own CA; cert verification is controlled by PG_SSL env var (off in dev, on in prod)
+const sslConfig = useSsl ? { rejectUnauthorized: Boolean(process.env.PG_SSL_VERIFY === 'true') } : false;
 const sequelize = new Sequelize(config.pg.database, config.pg.user, config.pg.password, {
   host: config.pg.host,
   port: config.pg.port,
   dialect: 'postgres',
   logging: config.env === 'development' ? console.log : false,
   dialectOptions: {
-    ssl: useSsl ? { rejectUnauthorized: false } : false,
+    ssl: sslConfig,
   },
   pool: {
     max: 5,
@@ -32,7 +34,7 @@ const pool = new Pool({
   min: 0,
   idleTimeoutMillis: 10000,
   connectionTimeoutMillis: 30000,
-  ssl: useSsl ? { rejectUnauthorized: false } : false,
+  ssl: sslConfig,
 });
 
 pool.on('error', (err) => {
