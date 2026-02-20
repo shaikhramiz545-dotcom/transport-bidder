@@ -32,7 +32,12 @@ router.get('/autocomplete', async (req, res) => {
     });
     if (sessiontoken) params.set('sessiontoken', sessiontoken);
     const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?${params}`;
-    const response = await axios.get(url);
+    const response = await axios.get(url, {
+      headers: {
+        'X-Android-Package': 'com.tbidder.tbidder_user_app',
+        'X-Android-Cert': '459566D96C734C99BA850F5464930489329391E0',
+      },
+    });
     res.json(response.data);
   } catch (e) {
     console.error('[places proxy] autocomplete', e.message);
@@ -68,6 +73,10 @@ function _proxyToGoogle(path, res) {
     hostname: 'maps.googleapis.com',
     path,
     method: 'GET',
+    headers: {
+      'X-Android-Package': 'com.tbidder.tbidder_user_app',
+      'X-Android-Cert': '459566D96C734C99BA850F5464930489329391E0',
+    },
   };
   const req = https.request(opts, (gRes) => {
     let body = '';
