@@ -6,8 +6,51 @@ const errorHandler = require('./middleware/error-handler');
 const { db: firestoreDb } = require('./config/firebase');
 const { sequelize } = require('./config/db');
 
-// NOTE: Startup migrations have been moved to scripts/migrate.js
-// Run `npm run migrate` to apply schema changes.
+// Auto-run pending SQL migrations on startup using DATABASE_URL already set in the environment.
+// This ensures schema changes (like migration 028) apply automatically on every EB deploy.
+(async () => {
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) {
+    console.log('[startup-migrate] DATABASE_URL not set — skipping migrations.');
+    return;
+  }
+  try {
+    const path = require('path');
+    const fs   = require('fs');
+    const { Pool } = require('pg');
+    const pool = new Pool({
+      connectionString: dbUrl,
+      ssl: { rejectUnauthorized: false },
+      connectionTimeoutMillis: 8000,
+    });
+    await pool.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
+      id SERIAL PRIMARY KEY, name TEXT UNIQUE NOT NULL, run_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`);
+    const migrationsDir = path.join(__dirname, '..', 'migrations');
+    if (!fs.existsSync(migrationsDir)) { await pool.end(); return; }
+    const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
+    for (const file of files) {
+      const { rows } = await pool.query('SELECT 1 FROM schema_migrations WHERE name=$1', [file]);
+      if (rows.length > 0) continue;
+      const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query(sql);
+        await client.query('INSERT INTO schema_migrations (name) VALUES ($1)', [file]);
+        await client.query('COMMIT');
+        console.log('[startup-migrate] Ran:', file);
+      } catch (err) {
+        await client.query('ROLLBACK');
+        console.error('[startup-migrate] Failed (non-fatal):', file, err.message);
+      } finally { client.release(); }
+    }
+    console.log('[startup-migrate] Done.');
+    await pool.end();
+  } catch (err) {
+    console.error('[startup-migrate] Error (non-fatal, server continues):', err.message);
+  }
+})();
 
 // Auto-create Sequelize-managed tables (AppUsers, EmailOtps, etc.) if they
 // don't exist yet. `alter: false` avoids mutating existing columns; it only
