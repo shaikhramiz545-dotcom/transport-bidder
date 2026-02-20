@@ -299,31 +299,34 @@ router.get('/health-status', authMiddleware, async (req, res) => {
     placesDetailsOk, driverVerificationOk, tourBookingsOk, tourTickerOk, tourFeatureFlagOk,
     agencySignupOk, agencyLoginOk, agencyPayoutsOk, agencyWalletOk,
     walletTxOk, walletRechargeOk, adminStatsOk, uploadsOk,
+    driverDocsOk, driverVerRegOk,
   ] = await Promise.all([
-    pingRoute(baseUrl, '/api/rides'),
-    pingRoute(baseUrl, '/api/auth/login', 'POST'),
-    pingRoute(baseUrl, '/api/auth/verify', 'POST'),
-    pingRoute(baseUrl, '/api/auth/signup', 'POST'),
-    pingRoute(baseUrl, '/api/auth/email-login', 'POST'),
-    pingRoute(baseUrl, '/api/auth/verify-email', 'POST'),
-    pingRoute(baseUrl, '/api/auth/forgot-password', 'POST'),
-    pingRoute(baseUrl, '/api/drivers/requests'),
-    pingRoute(baseUrl, '/api/wallet/balance'),
-    pingRoute(baseUrl, '/api/tours'),
-    pingRoute(baseUrl, '/api/agency/me'),
-    pingRoute(baseUrl, '/api/places/details?place_id=ChIJ0_c7xv-KrpQRnrlsC1S3l2I'), // Lima
-    pingRoute(baseUrl, '/api/drivers/verification-status'),
-    pingRoute(baseUrl, '/api/tours/bookings', 'POST'), // 400 without body = route exists
-    pingRoute(baseUrl, '/api/tours/ticker-messages'),
-    pingRoute(baseUrl, '/api/tours/feature-flag'),
-    pingRoute(baseUrl, '/api/agency/signup', 'POST'), // 400 without body = route exists
-    pingRoute(baseUrl, '/api/agency/login', 'POST'),
-    pingRoute(baseUrl, '/api/agency/payout-requests'),
-    pingRoute(baseUrl, '/api/agency/wallet'),
-    pingRoute(baseUrl, '/api/wallet/transactions'),
-    pingRoute(baseUrl, '/api/wallet/recharge', 'POST'), // 400 = route exists
-    pingRoute(baseUrl, '/api/admin/stats'), // 401 without token = route exists
+    pingRoute(baseUrl, '/api/v1/rides'),
+    pingRoute(baseUrl, '/api/v1/auth/login', 'POST'),
+    pingRoute(baseUrl, '/api/v1/auth/verify', 'POST'),
+    pingRoute(baseUrl, '/api/v1/auth/signup', 'POST'),
+    pingRoute(baseUrl, '/api/v1/auth/email-login', 'POST'),
+    pingRoute(baseUrl, '/api/v1/auth/verify-email', 'POST'),
+    pingRoute(baseUrl, '/api/v1/auth/forgot-password', 'POST'),
+    pingRoute(baseUrl, '/api/v1/drivers/requests'),
+    pingRoute(baseUrl, '/api/v1/wallet/balance'),
+    pingRoute(baseUrl, '/api/v1/tours'),
+    pingRoute(baseUrl, '/api/v1/agency/me'),
+    pingRoute(baseUrl, '/api/v1/places/details?place_id=ChIJ0_c7xv-KrpQRnrlsC1S3l2I'), // Lima
+    pingRoute(baseUrl, '/api/v1/drivers/verification-status'),
+    pingRoute(baseUrl, '/api/v1/tours/bookings', 'POST'), // 400 without body = route exists
+    pingRoute(baseUrl, '/api/v1/tours/ticker-messages'),
+    pingRoute(baseUrl, '/api/v1/tours/feature-flag'),
+    pingRoute(baseUrl, '/api/v1/agency/signup', 'POST'), // 400 without body = route exists
+    pingRoute(baseUrl, '/api/v1/agency/login', 'POST'),
+    pingRoute(baseUrl, '/api/v1/agency/payout-requests'),
+    pingRoute(baseUrl, '/api/v1/agency/wallet'),
+    pingRoute(baseUrl, '/api/v1/wallet/transactions'),
+    pingRoute(baseUrl, '/api/v1/wallet/recharge', 'POST'), // 400 = route exists
+    pingRoute(baseUrl, '/api/v1/admin/stats'), // 401 without token = route exists
     pingRoute(baseUrl, '/uploads/'),
+    pingRoute(baseUrl, '/api/v1/drivers/documents'),   // driver doc upload endpoint
+    pingRoute(baseUrl, '/api/v1/drivers/verification-register', 'POST'), // verification submit
   ]);
 
   result.apis = {
@@ -349,6 +352,8 @@ router.get('/health-status', authMiddleware, async (req, res) => {
       authForgotPassword: authForgotPwdOk,
       drivers: driversOk,
       driverVerification: driverVerificationOk,
+      driverDocuments: driverDocsOk,
+      driverVerificationRegister: driverVerRegOk,
       wallet: walletBalOk,
       walletTransactions: walletTxOk,
       walletRecharge: walletRechargeOk,
@@ -482,6 +487,16 @@ router.get('/health-status', authMiddleware, async (req, res) => {
   result.trafficWindowSec = 60;
 
   return res.json(result);
+});
+
+/** POST /api/admin/restart – Graceful backend restart (admin-only). EB process manager auto-restarts. */
+router.post('/restart', authMiddleware, async (req, res) => {
+  console.log(`[admin] Backend restart requested by ${req.user?.email || req.user?.id || 'admin'}`);
+  res.json({ ok: true, message: 'Backend is restarting. It will be back in ~10 seconds.' });
+  setTimeout(() => {
+    console.log('[admin] Executing graceful restart via process.exit(0)...');
+    process.exit(0);
+  }, 1500);
 });
 
 /** GET /api/admin/health-history – Last 7 days of health checks (for uptime % & bar graph). */
