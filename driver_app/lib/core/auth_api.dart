@@ -12,6 +12,20 @@ class AuthApi {
 
   String _url(String path) => '$_base/api/auth$path';
 
+  /// Extract error message from backend response — handles all formats:
+  /// { message: '...' }, { error: { message: '...' } }, { error: '...' }
+  String _extractMessage(Map<String, dynamic> data, String fallback) {
+    final msg = data['message'] as String?;
+    if (msg != null && msg.isNotEmpty) return msg;
+    final err = data['error'];
+    if (err is Map<String, dynamic>) {
+      final errMsg = err['message'] as String?;
+      if (errMsg != null && errMsg.isNotEmpty) return errMsg;
+    }
+    if (err is String && err.isNotEmpty) return err;
+    return fallback;
+  }
+
   // ═══════════════════════════════════════════════════════════════
   // NEW: Email + Password auth (backend-managed, ZeptoMail OTP)
   // ═══════════════════════════════════════════════════════════════
@@ -46,14 +60,9 @@ class AuthApi {
         // Non-JSON response body
       }
 
-      final msg = (data['message'] as String?) ??
-          ((data['error'] is Map) ? (data['error']['message'] as String?) : null) ??
-          (res.statusCode == 429 ? 'Too many requests. Please wait and try again.' : null) ??
-          'Signup failed';
-
       return AuthResponse(
         success: data['success'] as bool? ?? (res.statusCode >= 200 && res.statusCode < 300),
-        message: msg,
+        message: _extractMessage(data, 'Signup failed'),
         token: data['token'] as String?,
         user: _parseUser(data['user']),
       );
@@ -87,13 +96,9 @@ class AuthApi {
       } catch (_) {}
 
       final code = data['code'] as String?;
-      final msg = (data['message'] as String?) ??
-          ((data['error'] is Map) ? (data['error']['message'] as String?) : null) ??
-          (res.statusCode == 429 ? 'Too many requests. Please wait and try again.' : null) ??
-          'Login failed';
       return AuthResponse(
         success: data['success'] as bool? ?? (res.statusCode >= 200 && res.statusCode < 300),
-        message: msg,
+        message: _extractMessage(data, 'Login failed'),
         token: data['token'] as String?,
         user: _parseUser(data['user']),
         code: code,
@@ -127,13 +132,9 @@ class AuthApi {
         if (decoded is Map<String, dynamic>) data = decoded;
       } catch (_) {}
 
-      final msg = (data['message'] as String?) ??
-          ((data['error'] is Map) ? (data['error']['message'] as String?) : null) ??
-          (res.statusCode == 429 ? 'Too many requests. Please wait and try again.' : null) ??
-          'Verification failed';
       return AuthResponse(
         success: data['success'] as bool? ?? (res.statusCode >= 200 && res.statusCode < 300),
-        message: msg,
+        message: _extractMessage(data, 'Verification failed'),
         token: data['token'] as String?,
         user: _parseUser(data['user']),
       );
@@ -157,7 +158,7 @@ class AuthApi {
       final data = jsonDecode(res.body) as Map<String, dynamic>? ?? {};
       return AuthResponse(
         success: data['success'] as bool? ?? false,
-        message: data['message'] as String? ?? 'Failed',
+        message: _extractMessage(data, 'Failed to send OTP'),
       );
     } catch (e) {
       return const AuthResponse(success: false, message: 'Cannot reach server. Check network.');
@@ -179,7 +180,7 @@ class AuthApi {
       final data = jsonDecode(res.body) as Map<String, dynamic>? ?? {};
       return AuthResponse(
         success: data['success'] as bool? ?? false,
-        message: data['message'] as String? ?? 'Failed',
+        message: _extractMessage(data, 'Failed to send OTP'),
       );
     } catch (e) {
       return const AuthResponse(success: false, message: 'Cannot reach server. Check network.');
@@ -208,7 +209,7 @@ class AuthApi {
       final data = jsonDecode(res.body) as Map<String, dynamic>? ?? {};
       return AuthResponse(
         success: data['success'] as bool? ?? false,
-        message: data['message'] as String? ?? 'Failed',
+        message: _extractMessage(data, 'Password reset failed'),
       );
     } catch (e) {
       return const AuthResponse(success: false, message: 'Cannot reach server. Check network.');

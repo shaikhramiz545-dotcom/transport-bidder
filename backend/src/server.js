@@ -4,9 +4,26 @@ const app = require('./app');
 const config = require('./config');
 const errorHandler = require('./middleware/error-handler');
 const { db: firestoreDb } = require('./config/firebase');
+const { sequelize } = require('./config/db');
 
 // NOTE: Startup migrations have been moved to scripts/migrate.js
 // Run `npm run migrate` to apply schema changes.
+
+// Auto-create Sequelize-managed tables (AppUsers, EmailOtps, etc.) if they
+// don't exist yet. `alter: false` avoids mutating existing columns; it only
+// creates tables that are missing.
+(async () => {
+  try {
+    await sequelize.authenticate();
+    console.log('✅ PostgreSQL connected');
+    // Import models so their definitions are registered before sync
+    require('./models');
+    await sequelize.sync({ alter: false });
+    console.log('✅ Sequelize tables synced');
+  } catch (err) {
+    console.error('⚠️ PostgreSQL sync failed (auth endpoints may not work):', err.message);
+  }
+})();
 
 const server = http.createServer(app);
 
@@ -57,7 +74,7 @@ app.use((req, res, next) => {
   if (res.jsonError) {
     return res.jsonError('Not found', 'NOT_FOUND', 404);
   }
-  res.status(404).json({ error: 'Not found', path: req.path });
+  res.status(404).json({ success: false, message: 'Not found', error: 'Not found', path: req.path });
 });
 
 // Global Error Handler

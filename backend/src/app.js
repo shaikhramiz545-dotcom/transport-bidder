@@ -47,6 +47,7 @@ const limiter = rateLimit({
   },
   message: {
     success: false,
+    message: 'Too many requests, please try again later.',
     error: {
       message: 'Too many requests, please try again later.',
       code: 'RATE_LIMIT_EXCEEDED'

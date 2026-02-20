@@ -16,6 +16,7 @@ const responseWrapper = (req, res, next) => {
   res.jsonError = (message, code = 'INTERNAL_ERROR', statusCode = 500, details = null) => {
     const response = {
       success: false,
+      message,
       data: null,
       error: {
         message,
