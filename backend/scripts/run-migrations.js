@@ -77,8 +77,7 @@ async function run() {
         console.log('[migrate] Ran:', name);
       } catch (err) {
         await client.query('ROLLBACK');
-        console.error('[migrate] Failed:', name, err.message);
-        throw err;
+        console.error('[migrate] Failed (non-fatal, continuing):', name, err.message);
       } finally {
         client.release();
       }

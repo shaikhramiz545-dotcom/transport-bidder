@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:tbidder_driver_app/features/verification/picked_image_io.dart'
@@ -195,7 +196,7 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
       if (token != null && token.trim().isNotEmpty) {
         headers['Authorization'] = 'Bearer ${token.trim()}';
       }
-      final uri = Uri.parse('$kApiBaseUrl/api/drivers/documents')
+      final uri = Uri.parse('$kApiBaseUrl/api/v1/drivers/documents')
           .replace(queryParameters: {'driverId': driverId});
       final res = await http.get(uri, headers: headers).timeout(const Duration(seconds: 10));
       if (res.statusCode != 200) return;
@@ -239,7 +240,7 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
       final submittedKey = driverId.isNotEmpty ? 'verification_submitted_at_$driverId' : null;
       final submittedAt = submittedKey != null ? prefs.getString(submittedKey) : null;
       // Do not call verification-register here; it can reset approved -> pending.
-      final uri = Uri.parse('$kApiBaseUrl/api/drivers/verification-status')
+      final uri = Uri.parse('$kApiBaseUrl/api/v1/drivers/verification-status')
           .replace(queryParameters: driverId.isNotEmpty ? {'driverId': driverId} : {});
       debugPrint('[Verification] Fetching status for driverId=$driverId uri=$uri');
       final res = await http.get(uri, headers: headers).timeout(const Duration(seconds: 10));
@@ -346,13 +347,89 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
     }
   }
 
-  bool get _allPersonalDocsUploaded =>
-      _kPersonalDocKeys.every((k) => (_docPaths[k] ?? '').isNotEmpty);
+  bool get _allPersonalDocsUploaded {
+    // In revision mode, only require requested personal docs to be ready
+    if (_reuploadDocumentTypes.isNotEmpty) {
+      final requested = _reuploadDocumentTypes.where((k) => _kPersonalDocKeys.contains(k)).toList();
+      if (requested.isEmpty) return true; // no personal docs requested
+      return requested.every((k) => (_docPaths[k] ?? '').isNotEmpty || _docFiles[k] != null);
+    }
+    return _kPersonalDocKeys.every((k) => (_docPaths[k] ?? '').isNotEmpty);
+  }
 
-  bool get _allVehicleDocsUploaded =>
-      _kVehicleDocKeys.every((k) => (_docPaths[k] ?? '').isNotEmpty);
+  bool get _allVehicleDocsUploaded {
+    // In revision mode, only require requested vehicle docs to be ready
+    if (_reuploadDocumentTypes.isNotEmpty) {
+      final requested = _reuploadDocumentTypes.where((k) => _kVehicleDocKeys.contains(k)).toList();
+      if (requested.isEmpty) return true; // no vehicle docs requested
+      return requested.every((k) => (_docPaths[k] ?? '').isNotEmpty || _docFiles[k] != null);
+    }
+    return _kVehicleDocKeys.every((k) => (_docPaths[k] ?? '').isNotEmpty);
+  }
 
   bool get _allDocsReady => _allPersonalDocsUploaded && _allVehicleDocsUploaded;
+
+  /// Show a centered floating notification (instead of bottom SnackBar).
+  void _showNotif(String message, {Color color = Colors.green, int seconds = 4}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).removeCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: const TextStyle(fontSize: 13)),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+        duration: Duration(seconds: seconds),
+        margin: EdgeInsets.only(
+          bottom: MediaQuery.of(context).size.height * 0.42,
+          left: 20,
+          right: 20,
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+
+  /// Show the already-captured/uploaded photo in a full-screen dialog.
+  void _viewDoc(String key) {
+    final path = _docPaths[key] ?? '';
+    if (path.isEmpty) return;
+    final isUrl = path.startsWith('http');
+    final label = _kDocKeyLabels[key] ?? key;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.black,
+        insetPadding: const EdgeInsets.all(12),
+        child: Stack(
+          children: [
+            Center(
+              child: InteractiveViewer(
+                child: isUrl
+                    ? Image.network(path, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, color: Colors.white, size: 64))
+                    : Image.file(File(path), fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, color: Colors.white, size: 64)),
+              ),
+            ),
+            Positioned(
+              top: 8,
+              right: 8,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white, size: 28),
+                onPressed: () => Navigator.of(ctx).pop(),
+              ),
+            ),
+            Positioned(
+              bottom: 16,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Text(label, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Future<void> _pickDoc(String key) async {
     final t = AppLocaleScope.of(context)?.t ?? (String k, [Map<String, dynamic>? p]) => translate(k, defaultLocale, p);
@@ -386,33 +463,33 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
     );
     
     if (proceed != true) return;
-    
-    // Get GPS location before capture
-    Position? position;
-    try {
-      final permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
-        await Geolocator.requestPermission();
-      }
-      position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 10),
-      );
-    } catch (_) {
-      // GPS optional, continue without it
-      position = null;
-    }
-    
-    // Camera-only capture (no gallery access)
+
+    // Launch camera immediately (no GPS wait — GPS is fetched after photo is taken)
     final picker = ImagePicker();
     final xFile = await picker.pickImage(
       source: ImageSource.camera,
       preferredCameraDevice: CameraDevice.rear,
-      imageQuality: 85,
+      imageQuality: 70,
+      maxWidth: 1280,
+      maxHeight: 1280,
     );
-    
+
     if (xFile != null && mounted) {
       final captureTime = DateTime.now();
+
+      // Get GPS in background after photo is already captured (non-blocking, low accuracy = fast)
+      Position? position;
+      try {
+        final permission = await Geolocator.checkPermission();
+        if (permission != LocationPermission.denied && permission != LocationPermission.deniedForever) {
+          position = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.low,
+            timeLimit: const Duration(seconds: 5),
+          );
+        }
+      } catch (_) {
+        position = null;
+      }
       
       // Store metadata with the file
       final metadata = {
@@ -435,12 +512,10 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
       await _logPhotoActivity(key, metadata);
       
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('✅ ${t('verification_upload')} ($key)\n📍 GPS: ${position != null ? 'Recorded' : 'Not available'}'),
-            backgroundColor: Colors.green.shade700,
-            duration: const Duration(seconds: 3),
-          ),
+        _showNotif(
+          '✅ ${t('verification_upload')} ($key)\n📍 GPS: ${position != null ? 'Recorded' : 'Not available'}',
+          color: Colors.green.shade700,
+          seconds: 4,
         );
       }
     }
@@ -459,7 +534,7 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
       }
       
       await http.post(
-        Uri.parse('$kApiBaseUrl/api/drivers/activity-log'),
+        Uri.parse('$kApiBaseUrl/api/v1/drivers/activity-log'),
         headers: headers,
         body: json.encode({
           'driverId': driverId,
@@ -480,7 +555,7 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
   Future<bool> _uploadDocument(String driverId, String documentType, XFile xFile) async {
     try {
       final bytes = await xFile.readAsBytes();
-      final uri = Uri.parse('$kApiBaseUrl/api/drivers/documents');
+      final uri = Uri.parse('$kApiBaseUrl/api/v1/drivers/documents');
       final token = await ProfileStorageService.getAuthToken();
       final request = http.MultipartRequest('POST', uri);
       if (token != null && token.trim().isNotEmpty) {
@@ -508,7 +583,7 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
         bytes,
         filename: '$documentType$ext',
       ));
-      final streamed = await request.send().timeout(const Duration(seconds: 25));
+      final streamed = await request.send().timeout(const Duration(seconds: 60));
       final response = await http.Response.fromStream(streamed);
       final status = response.statusCode;
       if (status >= 200 && status < 300) {
@@ -544,23 +619,12 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
         String friendly = 'Upload failed ($status)';
         if (status == 401) friendly = 'Session expired. Please log in again.';
         if (serverMsg.isNotEmpty) friendly = '$friendly: $serverMsg';
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(friendly),
-            backgroundColor: Colors.red.shade700,
-            duration: const Duration(seconds: 5),
-          ),
-        );
+        _showNotif(friendly, color: Colors.red.shade700, seconds: 6);
       }
       return false;
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Upload failed: $e'),
-            backgroundColor: Colors.red.shade700,
-          ),
-        );
+        _showNotif('Upload failed: $e', color: Colors.red.shade700, seconds: 6);
       }
       return false;
     }
@@ -1588,7 +1652,7 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
           const Spacer(),
           if (hasFile)
             TextButton(
-              onPressed: () => _pickDoc(key),
+              onPressed: () => _viewDoc(key),
               child: Text(t('verification_view'), style: const TextStyle(fontSize: 12)),
             ),
         ],
@@ -1750,6 +1814,39 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
       );
     }
 
+    // Pending + admin requested reupload: show "Fix documents" button
+    if (_status == 'pending' && _reuploadDocumentTypes.isNotEmpty) {
+      return Padding(
+        padding: EdgeInsets.fromLTRB(20, 12, 20, 20 + MediaQuery.of(context).padding.bottom),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              t('verification_status_reupload_subtitle'),
+              style: GoogleFonts.poppins(fontSize: 12, color: Colors.orange.shade300),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => setState(() {
+                  _currentStep = _reuploadDocumentTypes.any((k) => _kVehicleDocKeys.contains(k)) ? 1 : 0;
+                }),
+                icon: const Icon(Icons.upload_file, size: 18),
+                label: Text(t('verification_fix_documents')),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.neonOrange,
+                  foregroundColor: AppTheme.darkBg,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     final underReviewLocked = _status == 'pending' && _hasVerification && _reuploadDocumentTypes.isEmpty;
     if (underReviewLocked) {
       return Padding(
@@ -1830,43 +1927,6 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
   Future<void> _submitForReview() async {
     setState(() => _submitting = true);
     try {
-      // Profile photo will be auto-copied from selfie during upload, no need to validate here
-      
-      // Validate mandatory fields
-      final missingFields = <String>[];
-      if (_vehicleBrandController.text.isEmpty) missingFields.add('Vehicle Brand');
-      if (_showCustomBrand && _customBrandController.text.trim().isEmpty) missingFields.add('Custom Brand Name');
-      if (_vehicleModelController.text.trim().isEmpty) missingFields.add('Vehicle Model');
-      if (_vehicleColor.isEmpty) missingFields.add('Vehicle Color');
-      if (_showCustomColor && _customColorController.text.trim().isEmpty) missingFields.add('Custom Color Name');
-      if (_registrationYear == null) missingFields.add('Registration Year');
-      if (_vehicleCapacity == null) missingFields.add('Passenger Capacity');
-      if (_licenseClass.isEmpty) missingFields.add('License Class');
-      if (_licenseIssueDate == null) missingFields.add('License Issue Date');
-      if (_licenseExpiryDate == null) missingFields.add('License Expiry Date');
-      
-      // Check all required documents are uploaded (consider cached backend URLs too)
-      for (final key in [..._kPersonalDocKeys, ..._kVehicleDocKeys]) {
-        final hasNewFile = _docFiles[key] != null;
-        final hasCachedPath = (_docPaths[key] ?? '').isNotEmpty;
-        if (!hasNewFile && !hasCachedPath) {
-          missingFields.add(key.replaceAll('_', ' ').toUpperCase());
-        }
-      }
-      
-      if (missingFields.isNotEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Please fill all mandatory fields: ${missingFields.join(', ')}'),
-              backgroundColor: Colors.red.shade700,
-              duration: const Duration(seconds: 5),
-            ),
-          );
-        }
-        if (mounted) setState(() => _submitting = false);
-        return;
-      }
       final prefs = await SharedPreferences.getInstance();
       final driverId = prefs.getString(_kDriverIdKey) ?? '';
       if (driverId.isEmpty) {
@@ -1881,19 +1941,78 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
         if (mounted) setState(() => _submitting = false);
         return;
       }
-      // Upload all documents first (backend stores under driverId + documentType)
-      for (final key in [..._kPersonalDocKeys, ..._kVehicleDocKeys]) {
+
+      // Revision mode: admin requested specific docs — only validate + upload those docs
+      final isRevisionMode = _reuploadDocumentTypes.isNotEmpty;
+
+      if (!isRevisionMode) {
+        // Full submission: validate all mandatory fields
+        final missingFields = <String>[];
+        if (_vehicleBrandController.text.isEmpty) missingFields.add('Vehicle Brand');
+        if (_showCustomBrand && _customBrandController.text.trim().isEmpty) missingFields.add('Custom Brand Name');
+        if (_vehicleModelController.text.trim().isEmpty) missingFields.add('Vehicle Model');
+        if (_vehicleColor.isEmpty) missingFields.add('Vehicle Color');
+        if (_showCustomColor && _customColorController.text.trim().isEmpty) missingFields.add('Custom Color Name');
+        if (_registrationYear == null) missingFields.add('Registration Year');
+        if (_vehicleCapacity == null) missingFields.add('Passenger Capacity');
+        if (_licenseClass.isEmpty) missingFields.add('License Class');
+        if (_licenseIssueDate == null) missingFields.add('License Issue Date');
+        if (_licenseExpiryDate == null) missingFields.add('License Expiry Date');
+
+        // Check all required documents are uploaded (consider cached backend URLs too)
+        for (final key in [..._kPersonalDocKeys, ..._kVehicleDocKeys]) {
+          final hasNewFile = _docFiles[key] != null;
+          final hasCachedPath = (_docPaths[key] ?? '').isNotEmpty;
+          if (!hasNewFile && !hasCachedPath) {
+            missingFields.add(key.replaceAll('_', ' ').toUpperCase());
+          }
+        }
+
+        if (missingFields.isNotEmpty) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Please fill all mandatory fields: ${missingFields.join(', ')}'),
+                backgroundColor: Colors.red.shade700,
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          }
+          if (mounted) setState(() => _submitting = false);
+          return;
+        }
+      } else {
+        // Revision mode: only check that requested doc types have been selected
+        final missing = <String>[];
+        for (final key in _reuploadDocumentTypes) {
+          final hasNewFile = _docFiles[key] != null;
+          if (!hasNewFile) {
+            missing.add(_kDocKeyLabels[key] ?? key);
+          }
+        }
+        if (missing.isNotEmpty) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Please select new photos for: ${missing.join(', ')}'),
+                backgroundColor: Colors.orange.shade700,
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          }
+          if (mounted) setState(() => _submitting = false);
+          return;
+        }
+      }
+
+      // Upload documents: in revision mode only upload the requested types; in full mode upload all new files
+      final docsToUpload = isRevisionMode ? _reuploadDocumentTypes : [..._kPersonalDocKeys, ..._kVehicleDocKeys];
+      for (final key in docsToUpload) {
         final xFile = _docFiles[key];
         if (xFile != null) {
           final ok = await _uploadDocument(driverId, key, xFile);
           if (!ok && mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Upload failed: $key. Retry or check connection.'),
-                backgroundColor: Colors.red.shade700,
-              ),
-            );
-            if (mounted) setState(() => _submitting = false);
+            setState(() => _submitting = false);
             return;
           }
         }
@@ -1911,7 +2030,7 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
         headers['Authorization'] = 'Bearer ${token.trim()}';
       }
       final res = await http.post(
-        Uri.parse('$kApiBaseUrl/api/drivers/verification-register'),
+        Uri.parse('$kApiBaseUrl/api/v1/drivers/verification-register'),
         headers: headers,
         body: json.encode({
           'driverId': driverId,

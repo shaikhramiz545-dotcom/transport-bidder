@@ -1254,6 +1254,28 @@ router.post('/documents', requireRole('driver'), uploadDriverDoc.single('file'),
     } catch (dvErr) {
       console.warn('[drivers] documents: DriverVerification findOrCreate skipped:', dvErr.message);
     }
+    // If this upload was part of a reupload request, remove it from the pending list.
+    // When all requested docs are uploaded, clear reuploadDocumentTypes entirely.
+    try {
+      const dvRow = await DriverVerification.findOne({
+        where: { driverId },
+        attributes: ['reuploadDocumentTypes'],
+        raw: true,
+      });
+      if (dvRow) {
+        const pending = Array.isArray(dvRow.reuploadDocumentTypes) ? dvRow.reuploadDocumentTypes : [];
+        if (pending.includes(documentType)) {
+          const remaining = pending.filter((t) => t !== documentType);
+          await DriverVerification.update(
+            { reuploadDocumentTypes: remaining.length > 0 ? remaining : null, reuploadMessage: remaining.length > 0 ? undefined : null },
+            { where: { driverId } }
+          );
+          console.log('[drivers] documents reupload progress:', { driverId, documentType, remaining });
+        }
+      }
+    } catch (reuploadErr) {
+      console.warn('[drivers] documents: reuploadDocumentTypes update skipped:', reuploadErr.message);
+    }
     return res.json({ ok: true, documentType, fileUrl, fileName: req.file.originalname || req.file.filename, issueDate, expiryDate, policyNumber, insuranceCompany });
   } catch (err) {
     console.error('[drivers] documents upload', err.message);
