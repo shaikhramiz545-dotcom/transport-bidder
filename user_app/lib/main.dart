@@ -18,10 +18,9 @@ import 'package:tbidder_user_app/services/profile_storage_service.dart';
 
 final GlobalKey<ScaffoldMessengerState> kScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
-  await runZonedGuarded(() async {
+void main() {
+  runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
     try {
       await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
