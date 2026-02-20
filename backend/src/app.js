@@ -120,6 +120,8 @@ apiV1.use('/wallet', walletRoutes);
 
 // Mount API v1
 app.use('/api/v1', apiV1);
+// Mount API at root /api for backward compatibility with current mobile apps
+app.use('/api', apiV1);
 
 // Root Route
 app.get('/', (_req, res) => {
