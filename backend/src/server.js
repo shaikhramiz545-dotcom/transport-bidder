@@ -6,23 +6,34 @@ const errorHandler = require('./middleware/error-handler');
 const { db: firestoreDb } = require('./config/firebase');
 const { sequelize } = require('./config/db');
 
-// Auto-run pending SQL migrations on startup using DATABASE_URL already set in the environment.
-// This ensures schema changes (like migration 028) apply automatically on every EB deploy.
+// Auto-run pending SQL migrations on startup using DATABASE_URL or individual PG env vars.
+// This ensures schema changes (like migration 028) apply automatically on every start (local and EB deploy).
 (async () => {
-  const dbUrl = process.env.DATABASE_URL;
+  const dbUrl = process.env.DATABASE_URL || 
+    (process.env.PG_HOST && process.env.PG_DATABASE ? 
+      `postgresql://${process.env.PG_USER}:${process.env.PG_PASSWORD}@${process.env.PG_HOST}:${process.env.PG_PORT || 5432}/${process.env.PG_DATABASE}` 
+      : null);
+  
   if (!dbUrl) {
-    console.log('[startup-migrate] DATABASE_URL not set — skipping migrations.');
+    console.log('[startup-migrate] Database credentials not set — skipping migrations.');
     return;
   }
   try {
     const path = require('path');
     const fs   = require('fs');
     const { Pool } = require('pg');
-    const pool = new Pool({
+    
+    const poolConfig = {
       connectionString: dbUrl,
-      ssl: { rejectUnauthorized: false },
       connectionTimeoutMillis: 8000,
-    });
+    };
+    
+    // Only require SSL if connecting to an external DB like AWS RDS (i.e., not localhost)
+    if (!dbUrl.includes('localhost') && !dbUrl.includes('127.0.0.1')) {
+      poolConfig.ssl = { rejectUnauthorized: false };
+    }
+    
+    const pool = new Pool(poolConfig);
     await pool.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
       id SERIAL PRIMARY KEY, name TEXT UNIQUE NOT NULL, run_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )`);
