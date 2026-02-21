@@ -1,7 +1,7 @@
 name: tbidder_driver_app
 description: Tbidder Partner (Driver) App
 publish_to: "none"
-version: 2.3.3+23
+version: 2.3.4+24
 
 environment:
   sdk: ">=3.0.0 <4.0.0"

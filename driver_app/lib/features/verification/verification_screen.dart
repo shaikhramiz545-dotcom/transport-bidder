@@ -63,6 +63,7 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
   bool _hasAntecedentesPenales = false;
   
   // New fields to match admin panel
+  final TextEditingController _driverNameController = TextEditingController();
   final TextEditingController _cityController = TextEditingController();
   final TextEditingController _dniController = TextEditingController();
   final TextEditingController _licenseController = TextEditingController();
@@ -116,6 +117,7 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
 
   @override
   void dispose() {
+    _driverNameController.dispose();
     _cityController.dispose();
     _dniController.dispose();
     _licenseController.dispose();
@@ -131,11 +133,13 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
   }
 
   Future<void> _loadStoredFields() async {
+    final name = await ProfileStorageService.getName();
     final city = await ProfileStorageService.getCity();
     final dni = await ProfileStorageService.getDni();
     final license = await ProfileStorageService.getLicense();
     final vehiclePlate = await ProfileStorageService.getVehicle();
     if (mounted) {
+      _driverNameController.text = name ?? '';
       _cityController.text = city ?? '';
       _dniController.text = dni ?? '';
       _licenseController.text = license ?? '';
@@ -575,6 +579,28 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
             request.fields['captureTimestamp'] = captureTime;
           }
         } catch (_) {}
+      }
+      
+      // Include document metadata (issue/expiry dates)
+      final issueDate = _docIssueDates[documentType];
+      final expiryDate = _docExpiryDates[documentType];
+      if (issueDate != null) {
+        request.fields['issueDate'] = issueDate.toIso8601String().split('T')[0];
+      }
+      if (expiryDate != null) {
+        request.fields['expiryDate'] = expiryDate.toIso8601String().split('T')[0];
+      }
+      
+      // Include SOAT-specific metadata
+      if (documentType == 'soat') {
+        final policyNumber = _soatPolicyNumberController.text.trim();
+        final insuranceCompany = _soatInsuranceCompanyController.text.trim();
+        if (policyNumber.isNotEmpty) {
+          request.fields['policyNumber'] = policyNumber;
+        }
+        if (insuranceCompany.isNotEmpty) {
+          request.fields['insuranceCompany'] = insuranceCompany;
+        }
       }
       
       final ext = xFile.name.contains('.') ? '.${xFile.name.split('.').last}' : '.jpg';
@@ -1087,6 +1113,15 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
           style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey.shade400),
         ),
         const SizedBox(height: 16),
+        // Driver name input
+        _textInputField(
+          controller: _driverNameController,
+          label: 'Full Name *',
+          hint: 'Enter your full name',
+          icon: Icons.person_outlined,
+          onChanged: (value) => ProfileStorageService.saveName(value),
+        ),
+        const SizedBox(height: 12),
         // City input
         _textInputField(
           controller: _cityController,
@@ -1334,6 +1369,74 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
             child: _uploadCard(t, key: key, title: title, helper: helper, icon: icon),
           );
         }),
+        const SizedBox(height: 16),
+        // SOAT Metadata Fields
+        Text(
+          'SOAT Details',
+          style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600, color: AppTheme.neonOrange),
+        ),
+        const SizedBox(height: 12),
+        VehicleDatePicker(
+          label: 'SOAT Issue Date',
+          selectedDate: _docIssueDates['soat'],
+          onDateSelected: (date) {
+            setState(() {
+              _docIssueDates['soat'] = date;
+            });
+          },
+          lastDate: DateTime.now(),
+        ),
+        const SizedBox(height: 12),
+        VehicleDatePicker(
+          label: 'SOAT Expiry Date',
+          selectedDate: _docExpiryDates['soat'],
+          onDateSelected: (date) {
+            setState(() {
+              _docExpiryDates['soat'] = date;
+            });
+          },
+          firstDate: DateTime.now(),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _soatPolicyNumberController,
+          decoration: InputDecoration(
+            labelText: 'SOAT Policy Number',
+            labelStyle: GoogleFonts.poppins(color: Colors.grey.shade400),
+            filled: true,
+            fillColor: AppTheme.surfaceDark,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(color: Colors.grey.shade700),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: AppTheme.neonOrange),
+            ),
+          ),
+          style: GoogleFonts.poppins(color: AppTheme.onDark),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _soatInsuranceCompanyController,
+          decoration: InputDecoration(
+            labelText: 'Insurance Company',
+            labelStyle: GoogleFonts.poppins(color: Colors.grey.shade400),
+            filled: true,
+            fillColor: AppTheme.surfaceDark,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(color: Colors.grey.shade700),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: AppTheme.neonOrange),
+            ),
+          ),
+          style: GoogleFonts.poppins(color: AppTheme.onDark),
+        ),
       ],
     );
   }
@@ -1948,6 +2051,7 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
       if (!isRevisionMode) {
         // Full submission: validate all mandatory fields
         final missingFields = <String>[];
+        if (_driverNameController.text.trim().isEmpty) missingFields.add('Full Name');
         if (_vehicleBrandController.text.isEmpty) missingFields.add('Vehicle Brand');
         if (_showCustomBrand && _customBrandController.text.trim().isEmpty) missingFields.add('Custom Brand Name');
         if (_vehicleModelController.text.trim().isEmpty) missingFields.add('Vehicle Model');
@@ -2017,7 +2121,7 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
           }
         }
       }
-      final driverName = await ProfileStorageService.getName();
+      final driverName = _driverNameController.text.trim();
       final driverEmail = await ProfileStorageService.getEmail();
       final driverPhone = await ProfileStorageService.getPhone();
       final vehiclePlate = _vehiclePlateController.text.trim();
@@ -2034,7 +2138,7 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
         headers: headers,
         body: json.encode({
           'driverId': driverId,
-          if ((driverName ?? '').trim().isNotEmpty) 'driverName': driverName!.trim(),
+          if (driverName.isNotEmpty) 'driverName': driverName,
           if ((driverEmail ?? '').trim().isNotEmpty) 'email': driverEmail!.trim(),
           if ((driverPhone ?? '').trim().isNotEmpty) 'phone': driverPhone!.trim(),
           if (vehiclePlate.isNotEmpty) 'vehiclePlate': vehiclePlate,
