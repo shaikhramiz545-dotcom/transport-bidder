@@ -1705,22 +1705,42 @@ router.post('/drivers/:id/verify', authMiddleware, async (req, res) => {
     const statusMap = { approved: 'approved', rejected: 'rejected', temp_blocked: 'temp_blocked', suspended: 'suspended' };
     const status = statusMap[body.status] || 'approved';
     const blockReason = body.blockReason != null ? String(body.blockReason).trim() : null;
-    const [row] = await DriverVerification.findOrCreate({
-      where: { driverId },
-      defaults: { driverId, status },
-    });
-    const oldStatus = row.status || 'pending';
-    const updates = { status };
-    if (status === 'temp_blocked' || status === 'suspended' || status === 'rejected') {
-      updates.blockReason = blockReason || row.blockReason;
+
+    // Use raw SQL to avoid Sequelize failing on missing columns (e.g. authUid before migration runs)
+    const effectiveBlockReason = (status === 'temp_blocked' || status === 'suspended' || status === 'rejected')
+      ? (blockReason || null)
+      : null;
+    const clearReupload = status === 'approved';
+
+    // Upsert via raw SQL — resilient to any missing columns
+    const existing = await pool.query('SELECT status, "blockReason" FROM "DriverVerifications" WHERE "driverId" = $1 LIMIT 1', [driverId]);
+    const oldStatus = existing.rows[0]?.status || 'pending';
+    const existingBlockReason = existing.rows[0]?.blockReason || null;
+    const finalBlockReason = effectiveBlockReason !== null ? effectiveBlockReason : (status === 'approved' ? null : existingBlockReason);
+
+    if (existing.rows.length === 0) {
+      // Insert new row
+      await pool.query(
+        'INSERT INTO "DriverVerifications" ("driverId", status, "blockReason", "createdAt", "updatedAt") VALUES ($1, $2, $3, NOW(), NOW())',
+        [driverId, status, finalBlockReason]
+      );
     } else {
-      updates.blockReason = null;
+      // Update existing row
+      if (clearReupload) {
+        await pool.query(
+          'UPDATE "DriverVerifications" SET status=$1, "blockReason"=$2, "reuploadDocumentTypes"=NULL, "reuploadMessage"=NULL, "updatedAt"=NOW() WHERE "driverId"=$3',
+          [status, finalBlockReason, driverId]
+        );
+      } else {
+        await pool.query(
+          'UPDATE "DriverVerifications" SET status=$1, "blockReason"=$2, "updatedAt"=NOW() WHERE "driverId"=$3',
+          [status, finalBlockReason, driverId]
+        );
+      }
     }
-    if (status === 'approved') {
-      updates.reuploadDocumentTypes = null;
-      updates.reuploadMessage = null;
-    }
-    await row.update(updates);
+
+    // Build a minimal row object for Firestore sync below
+    const rowForSync = existing.rows[0] || {};
 
     // Audit log
     try {
@@ -1728,7 +1748,7 @@ router.post('/drivers/:id/verify', authMiddleware, async (req, res) => {
         driverId,
         actor: req.admin?.sub || 'admin',
         action: status,
-        reason: updates.blockReason || blockReason || null,
+        reason: finalBlockReason || null,
         oldStatus,
         newStatus: status,
         metadata: null,
@@ -1741,17 +1761,17 @@ router.post('/drivers/:id/verify', authMiddleware, async (req, res) => {
     try {
       await firestore.findOrCreateDriverVerification(driverId, {
         status,
-        vehicleType: row.vehicleType || 'car',
-        vehiclePlate: row.vehiclePlate || null,
-        driverName: row.driverName || null,
-        blockReason: updates.blockReason || null,
+        vehicleType: rowForSync.vehicleType || 'car',
+        vehiclePlate: rowForSync.vehiclePlate || null,
+        driverName: rowForSync.driverName || null,
+        blockReason: finalBlockReason || null,
       });
       await firestore.updateDriverVerification(driverId, {
         status,
-        vehicleType: row.vehicleType || 'car',
-        vehiclePlate: row.vehiclePlate || null,
-        driverName: row.driverName || null,
-        blockReason: updates.blockReason || null,
+        vehicleType: rowForSync.vehicleType || 'car',
+        vehiclePlate: rowForSync.vehiclePlate || null,
+        driverName: rowForSync.driverName || null,
+        blockReason: finalBlockReason || null,
       });
     } catch (syncErr) {
       console.warn('[admin] driver verify – Firestore sync skipped:', syncErr.message);
@@ -1763,7 +1783,7 @@ router.post('/drivers/:id/verify', authMiddleware, async (req, res) => {
       status,
     });
 
-    return res.json({ ok: true, driverId, status, blockReason: updates.blockReason || null });
+    return res.json({ ok: true, driverId, status, blockReason: finalBlockReason || null });
   } catch (err) {
     console.error('[admin] verify', err.message);
     return res.status(500).json({ error: err.message });
