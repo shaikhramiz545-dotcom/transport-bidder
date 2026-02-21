@@ -59,7 +59,7 @@ app.use(limiter);
 // 2. CORS Configuration
 const allowedOrigins = process.env.ALLOWED_ORIGINS 
   ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()) 
-  : ['https://tbidder-admin.web.app', 'http://localhost:3000'];
+  : ['https://t-bidder.netlify.app', 'https://admin.transportbidder.com', 'http://localhost:3000'];
 
 const corsOptions = {
   origin: (origin, callback) => {
