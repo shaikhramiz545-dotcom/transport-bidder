@@ -2,6 +2,8 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
+const multerS3 = require('multer-s3');
+const { s3Client, BUCKET_NAME } = require('../config/s3');
 const sharp = require('sharp');
 const { v4: uuidv4 } = require('uuid');
 const dayjs = require('dayjs');
@@ -212,22 +214,17 @@ async function persistVerificationDocumentData(driverId, body = {}, fallbackSelf
   }
 }
 
-const driverDocsRoot = path.join(__dirname, '..', '..', 'uploads', 'driver-docs');
-const driverDocStorage = multer.diskStorage({
-  destination: (req, _file, cb) => {
+// S3 storage for driver documents (persistent across container restarts)
+const driverDocStorage = multerS3({
+  s3: s3Client,
+  bucket: BUCKET_NAME,
+  contentType: multerS3.AUTO_CONTENT_TYPE,
+  key: (req, file, cb) => {
     const driverId = (req.body && req.body.driverId) ? String(req.body.driverId).replace(/[^a-zA-Z0-9_-]/g, '') : 'unknown';
-    const dir = path.join(driverDocsRoot, driverId);
-    try {
-      fs.mkdirSync(dir, { recursive: true });
-      cb(null, dir);
-    } catch (e) {
-      cb(e, null);
-    }
-  },
-  filename: (req, file, cb) => {
     const docType = (req.body && req.body.documentType) ? String(req.body.documentType).replace(/[^a-z0-9_]/g, '') : 'doc';
     const ext = path.extname(file.originalname) || '.jpg';
-    cb(null, `${docType}${ext}`);
+    const key = `driver-docs/${driverId}/${docType}${ext}`;
+    cb(null, key);
   },
 });
 const uploadDriverDoc = multer({ storage: driverDocStorage, limits: { fileSize: 10 * 1024 * 1024 } }); // 10 MB
@@ -1198,8 +1195,8 @@ router.post('/documents', requireRole('driver'), uploadDriverDoc.single('file'),
       // If status check fails, fall back to existing behavior so uploads don't break unexpectedly.
       console.warn('[drivers] documents status check skipped:', e.message);
     }
-    const relativePath = `driver-docs/${driverId}/${req.file.filename}`;
-    const fileUrl = `/uploads/${relativePath}`;
+    // S3 URL is in req.file.location (multer-s3 provides this)
+    const fileUrl = req.file.location || req.file.key;
     // NEW: Build document data with metadata fields
     const docData = {
       driverId,
