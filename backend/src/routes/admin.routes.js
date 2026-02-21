@@ -1742,7 +1742,7 @@ router.post('/drivers/:id/verify', authMiddleware, async (req, res) => {
   try {
     const driverId = req.params.id;
     const body = req.body || {};
-    const statusMap = { approved: 'approved', rejected: 'rejected', temp_blocked: 'temp_blocked', suspended: 'suspended' };
+    const statusMap = { pending: 'pending', approved: 'approved', rejected: 'rejected', temp_blocked: 'temp_blocked', suspended: 'suspended' };
     const status = statusMap[body.status] || 'approved';
     const blockReason = body.blockReason != null ? String(body.blockReason).trim() : null;
 
