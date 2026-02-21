@@ -75,7 +75,7 @@ jobs:
 
       - name: Package backend for EB
         run: |
-          SHA=$(git rev-parse --short HEAD)
+          SHA=$(git rev-parse --short HEAD)-$(date +%s)
           cd backend
           zip -r "../tbidder-${SHA}.zip" . \
             --exclude "node_modules/*" \

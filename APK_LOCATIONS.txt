@@ -3,18 +3,20 @@ TBidder APK Files - Quick Access
 
 USER APP APKs:
 📁 user_app/build/app/outputs/flutter-apk/
-├── app-release.apk  (63.3 MB) - RELEASE VERSION ✅
+├── app-release.apk  (64.5 MB) - RELEASE VERSION ✅
 ├── app-debug.apk    (98.2 MB) - DEBUG VERSION 🐛
 
 DRIVER APP APKs:  
 📁 driver_app/build/app/outputs/flutter-apk/
-├── app-release.apk  (57.3 MB) - RELEASE VERSION ✅
+├── app-release.apk  (61.9 MB) - RELEASE VERSION ✅
 ├── app-debug.apk    (94.0 MB) - DEBUG VERSION 🐛
 
 APK_RELEASES folder (production releases):
 📁 APK_RELEASES/
-├── Driver_App_Release_v2.2.7+17.apk  (57.3 MB) - v2.2.7+17 LATEST RELEASE ✅
-├── User_App_Release_v2.0.0+5.apk    (63.7 MB) - v2.0.0+5 LATEST RELEASE ✅
+├── Driver_App_Release_v2.2.7+17.apk  (57.3 MB) - v2.2.7+17
+├── User_App_Release_v2.0.0+5.apk    (63.7 MB) - v2.0.0+5
+├── Driver_App_Release_v2.3.1+21.apk  (61.9 MB) - v2.3.1+21 LATEST RELEASE ✅
+├── User_App_Release_v2.0.2+7.apk    (64.5 MB) - v2.0.2+7 LATEST RELEASE ✅
 ├── Driver_App_Release_v2.2.7+17_UTC-Timestamp-Fix.apk (57.3 MB) - Previous version
 ├── User_App_Release_v2.0.0+4.apk    (63.7 MB) - Previous user app
 ├── Driver_App_Release_v2.0.2+4.apk  (57.3 MB) - v2.0.2+4
@@ -29,10 +31,20 @@ DEBUG APKs (for testing):
 - User App: user_app/build/app/outputs/flutter-apk/app-debug.apk  
 - Driver App: driver_app/build/app/outputs/flutter-apk/app-debug.apk
 
-Last Updated: 2/16/2026 6:30 PM
+Last Updated: 2/21/2026 7:25 PM
 
 RELEASE NOTES:
 ================
+Driver App v2.3.1+21 - Latest Release (2/21/2026)
+----------------------------------------------
+✅ RELEASED: Latest driver app with all current features
+📦 APK: Driver_App_Release_v2.3.1+21.apk (61.9 MB)
+
+User App v2.0.2+7 - Latest Release (2/21/2026)
+---------------------------------------------
+✅ RELEASED: Latest user app with all current features
+📦 APK: User_App_Release_v2.0.2+7.apk (64.5 MB)
+
 Driver App v2.2.7+17 - UTC Timestamp Fix (2/16/2026)
 ----------------------------------------------------
 ✅ RELEASED: Latest driver app with UTC timestamp fixes
