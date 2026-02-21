@@ -143,7 +143,7 @@ server.on('error', (err) => {
 
 server.listen(config.port, () => {
   console.log(`🚀 [Tbidder] API listening on port ${config.port}`);
-  console.log(`🔗 [Tbidder] Health check: /health`);
+  console.log(`🔗 [Tbidder] Health check: /api/v1/health`);
 });
 
 // Stale ride cleanup: expire pending rides older than RIDE_EXPIRY_MINUTES every 5 minutes
@@ -178,6 +178,23 @@ async function cleanupStaleRides() {
     console.warn('[Cleanup] stale ride cleanup error:', err.message);
   }
 }
-setInterval(cleanupStaleRides, CLEANUP_INTERVAL_MS);
+const cleanupInterval = setInterval(cleanupStaleRides, CLEANUP_INTERVAL_MS);
 // Run once on startup after a short delay
 setTimeout(cleanupStaleRides, 10000);
+
+// Graceful shutdown: Docker/EB sends SIGTERM before SIGKILL.
+// Without this handler Node.js won't exit within the 10s window causing force-kills
+// and leaving old containers blocking new deployments.
+process.on('SIGTERM', () => {
+  console.log('[server] SIGTERM received — shutting down gracefully...');
+  clearInterval(cleanupInterval);
+  server.close(() => {
+    console.log('[server] HTTP server closed.');
+    process.exit(0);
+  });
+  // Force-exit after 8s if connections don't drain in time
+  setTimeout(() => {
+    console.error('[server] Forced exit after 8s timeout.');
+    process.exit(1);
+  }, 8000).unref();
+});
