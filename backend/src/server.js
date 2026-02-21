@@ -126,7 +126,7 @@ const { sequelize } = require('./config/db');
 
 const server = http.createServer(app);
 
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'https://t-bidder.netlify.app,https://admin.transportbidder.com,https://tbidder-admin.web.app,http://admin.transportbidder.com.s3-website.ap-south-1.amazonaws.com')
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'https://t-bidder.netlify.app,https://admin.transportbidder.com,https://tbidder-admin.web.app,http://admin.transportbidder.com.s3-website.ap-south-1.amazonaws.com,https://d3io043wgedrnl.cloudfront.net')
   .split(',').map(o => o.trim()).filter(Boolean);
 
 const io = new Server(server, {

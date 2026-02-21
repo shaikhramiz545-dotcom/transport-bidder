@@ -9,6 +9,7 @@ const { v4: uuidv4 } = require('uuid');
 const dayjs = require('dayjs');
 const db = require('../db/firestore');
 const { DriverVerification, DriverDocument, DriverIdentity, AppUser } = require('../models');
+const { pool } = require('../config/db');
 const { authenticate, requireRole } = require('../utils/auth');
 const { getClient: getRedis } = require('../services/redis');
 
@@ -26,14 +27,9 @@ async function resolveAuthDriverId(req) {
   const authUid = req.auth?.userId || req.auth?.uid || req.auth?.sub;
   if (authUid) {
     try {
-      const byAuthUid = await DriverVerification.findOne({ 
-        where: { authUid: String(authUid) }, 
-        attributes: ['driverId'], 
-        raw: true 
-      });
-      if (byAuthUid?.driverId) return String(byAuthUid.driverId);
+      const r = await pool.query('SELECT "driverId" FROM "DriverVerifications" WHERE "authUid" = $1 LIMIT 1', [String(authUid)]);
+      if (r.rows[0]?.driverId) return String(r.rows[0].driverId);
     } catch (authUidErr) {
-      // Column 'authUid' may not exist if migration 006/029 hasn't run yet – fall through to phone/email
       console.warn('[drivers] resolveAuthDriverId authUid lookup skipped:', authUidErr.message);
     }
   }
@@ -43,9 +39,8 @@ async function resolveAuthDriverId(req) {
   if (phone) {
     const row = await DriverIdentity.findOne({ where: { phone }, raw: true });
     if (row?.driverId) {
-      // Backfill authUid if available
       if (authUid) {
-        try { await DriverVerification.update({ authUid: String(authUid) }, { where: { driverId: row.driverId, authUid: null } }); } catch (_) {}
+        try { await pool.query('UPDATE "DriverVerifications" SET "authUid" = $1 WHERE "driverId" = $2 AND "authUid" IS NULL', [String(authUid), row.driverId]); } catch (_) {}
       }
       return String(row.driverId);
     }
@@ -57,18 +52,13 @@ async function resolveAuthDriverId(req) {
     try {
       const appUser = await AppUser.findOne({ where: { email }, attributes: ['name', 'phone'], raw: true });
       if (appUser?.name) {
-        const byEmail = await DriverVerification.findOne({ 
-          where: { email, driverName: appUser.name }, 
-          attributes: ['driverId'], 
-          raw: true 
-        });
-        if (byEmail?.driverId) {
-          // Backfill authUid if available
+        const r = await pool.query('SELECT "driverId" FROM "DriverVerifications" WHERE email = $1 AND "driverName" = $2 LIMIT 1', [email, appUser.name]);
+        if (r.rows[0]?.driverId) {
           if (authUid) {
-            try { await DriverVerification.update({ authUid: String(authUid) }, { where: { driverId: byEmail.driverId, authUid: null } }); } catch (_) {}
+            try { await pool.query('UPDATE "DriverVerifications" SET "authUid" = $1 WHERE "driverId" = $2 AND "authUid" IS NULL', [String(authUid), r.rows[0].driverId]); } catch (_) {}
           }
-          if (phone) { try { await DriverIdentity.findOrCreate({ where: { phone }, defaults: { phone, driverId: byEmail.driverId } }); } catch (_) {} }
-          return String(byEmail.driverId);
+          if (phone) { try { await DriverIdentity.findOrCreate({ where: { phone }, defaults: { phone, driverId: r.rows[0].driverId } }); } catch (_) {} }
+          return String(r.rows[0].driverId);
         }
       }
     } catch (_) {}
@@ -377,8 +367,8 @@ function normalizePhone(phone) {
 async function getVerificationStatus(driverId) {
   const id = String(driverId);
   try {
-    const pgRow = await DriverVerification.findOne({ where: { driverId: id }, attributes: ['status', 'blockReason'], raw: true });
-    if (pgRow) return { status: pgRow.status || 'pending', blockReason: pgRow.blockReason || null };
+    const r = await pool.query('SELECT status, "blockReason" FROM "DriverVerifications" WHERE "driverId" = $1 LIMIT 1', [id]);
+    if (r.rows[0]) return { status: r.rows[0].status || 'pending', blockReason: r.rows[0].blockReason || null };
   } catch (pgErr) {
     console.warn('[drivers] getVerificationStatus PG skipped:', pgErr.message);
   }
@@ -410,7 +400,8 @@ async function canGoOnline(driverId) {
     return { canGoOnline: false, reason, code: 'DRIVER_NOT_APPROVED' };
   }
   try {
-    const docs = await DriverDocument.findAll({ where: { driverId: id }, attributes: ['documentType', 'expiryDate'], raw: true });
+    const docRes = await pool.query('SELECT "documentType", "expiryDate" FROM "DriverDocuments" WHERE "driverId" = $1', [id]);
+    const docs = docRes.rows;
     const types = [...new Set(docs.map((d) => d.documentType))];
     if (types.length < REQUIRED_DOC_COUNT) {
       console.info('[drivers] canGoOnline false', { driverId: id, reason: 'DOC_MISSING', count: types.length });
@@ -660,21 +651,14 @@ router.get('/profile', requireRole('driver'), async (req, res) => {
     } catch (_) {}
 
     if (!profile) {
-      const row = await DriverVerification.findOne({
-        where: { driverId: String(driverId) },
-        attributes: [
-          'driverName', 'email', 'vehicleType', 'vehiclePlate',
-          // NEW: Vehicle detail fields
-          'vehicleBrand', 'vehicleModel', 'vehicleColor', 'registrationYear', 'vehicleCapacity',
-          // NEW: License fields
-          'licenseClass', 'licenseIssueDate', 'licenseExpiryDate',
-          // NEW: DNI fields
-          'dniIssueDate', 'dniExpiryDate',
-          // NEW: Advanced fields
-          'engineNumber', 'chassisNumber',
-        ],
-        raw: true,
-      });
+      const profRes = await pool.query(
+        `SELECT "driverName", email, "vehicleType", "vehiclePlate",
+                "vehicleBrand", "vehicleModel", "vehicleColor", "registrationYear", "vehicleCapacity",
+                "licenseClass", "licenseIssueDate", "licenseExpiryDate",
+                "dniIssueDate", "dniExpiryDate", "engineNumber", "chassisNumber"
+         FROM "DriverVerifications" WHERE "driverId" = $1 LIMIT 1`, [String(driverId)]
+      );
+      const row = profRes.rows[0] || null;
       if (row) {
         profile = {
           driverName: row.driverName || null,
@@ -730,7 +714,7 @@ router.get('/verification-status', requireRole('driver'), async (req, res) => {
     // Backfill email into DriverVerification if missing (so future resolveAuthDriverId works)
     const authEmail = req.auth?.email ? String(req.auth.email).trim().toLowerCase() : '';
     if (authEmail && driverId) {
-      try { await DriverVerification.update({ email: authEmail }, { where: { driverId: String(driverId), email: null } }); } catch (_) {}
+      try { await pool.query('UPDATE "DriverVerifications" SET email = $1 WHERE "driverId" = $2 AND email IS NULL', [authEmail, String(driverId)]); } catch (_) {}
     }
     const go = await canGoOnline(driverId);
     let reuploadRequested = null;
@@ -740,17 +724,11 @@ router.get('/verification-status', requireRole('driver'), async (req, res) => {
     let hasAntecedentesPoliciales = null;
     let hasAntecedentesPenales = null;
     try {
-      const row = await DriverVerification.findOne({
-        where: { driverId: String(driverId) },
-        attributes: [
-          'reuploadDocumentTypes',
-          'reuploadMessage',
-          'vehicleType',
-          'hasAntecedentesPoliciales',
-          'hasAntecedentesPenales',
-        ],
-        raw: true,
-      });
+      const r = await pool.query(
+        'SELECT "reuploadDocumentTypes", "reuploadMessage", "vehicleType", "hasAntecedentesPoliciales", "hasAntecedentesPenales" FROM "DriverVerifications" WHERE "driverId" = $1 LIMIT 1',
+        [String(driverId)]
+      );
+      const row = r.rows[0] || null;
       if (row) hasVerification = true;
       if (row?.vehicleType) vehicleType = String(row.vehicleType).trim().toLowerCase();
       if (row?.hasAntecedentesPoliciales !== undefined) hasAntecedentesPoliciales = row.hasAntecedentesPoliciales;
@@ -780,12 +758,8 @@ router.get('/verification-status', requireRole('driver'), async (req, res) => {
       } catch (_) {}
     }
     try {
-      const docs = await DriverDocument.findAll({
-        where: { driverId: String(driverId) },
-        attributes: ['documentType'],
-        raw: true,
-      });
-      const unique = new Set((docs || []).map((d) => d.documentType));
+      const docRes = await pool.query('SELECT "documentType" FROM "DriverDocuments" WHERE "driverId" = $1', [String(driverId)]);
+      const unique = new Set((docRes.rows || []).map((d) => d.documentType));
       documentsCount = unique.size;
     } catch (_) {}
     return res.json({
@@ -954,7 +928,8 @@ router.post('/verification-register', requireRole('driver'), async (req, res) =>
       // NEW: Check for duplicate DNI
       if (hasDni && dni) {
         // Check PostgreSQL (Source of Truth)
-        const existingDni = await DriverVerification.findOne({ where: { dni } });
+        const dniRes = await pool.query('SELECT "driverId" FROM "DriverVerifications" WHERE dni = $1 LIMIT 1', [dni]);
+        const existingDni = dniRes.rows[0] || null;
         if (existingDni && existingDni.driverId !== driverId) {
           return res.status(400).json({
             ok: false,
@@ -965,7 +940,8 @@ router.post('/verification-register', requireRole('driver'), async (req, res) =>
 
       // NEW: Check for duplicate License
       if (hasLicense && license) {
-        const existingLicense = await DriverVerification.findOne({ where: { license } });
+        const licRes = await pool.query('SELECT "driverId" FROM "DriverVerifications" WHERE license = $1 LIMIT 1', [license]);
+        const existingLicense = licRes.rows[0] || null;
         if (existingLicense && existingLicense.driverId !== driverId) {
           return res.status(400).json({
             ok: false,
@@ -976,7 +952,8 @@ router.post('/verification-register', requireRole('driver'), async (req, res) =>
 
       // NEW: Check for duplicate Email
       if (hasEmail && email) {
-        const existingEmail = await DriverVerification.findOne({ where: { email } });
+        const emailRes = await pool.query('SELECT "driverId" FROM "DriverVerifications" WHERE email = $1 LIMIT 1', [email]);
+        const existingEmail = emailRes.rows[0] || null;
         if (existingEmail && existingEmail.driverId !== driverId) {
           return res.status(400).json({
             ok: false,
@@ -1030,26 +1007,21 @@ router.post('/verification-register', requireRole('driver'), async (req, res) =>
 
     // Always write to PostgreSQL (for Admin Panel); fallback when Firestore not configured
     try {
-      const [pgRow, pgCreated] = await DriverVerification.findOrCreate({
-        where: { driverId },
-        defaults: {
-          driverId,
-          authUid: authUid ? String(authUid) : null,
-          status: finalStatus,
-          vehicleType,
-          vehiclePlate: vehiclePlate || null,
-          driverName,
-          email,
-          city,
-          dni,
-          phone,
-          license,
-          photoUrl,
-          blockReason: null,
-        },
-      });
-      if (pgCreated) {
+      // Raw SQL upsert — resilient to missing columns
+      const existingPg = await pool.query('SELECT "driverId", status, "vehiclePlate", "driverName", "vehicleType", email FROM "DriverVerifications" WHERE "driverId" = $1 LIMIT 1', [driverId]);
+      let pgRow;
+      let pgCreated = false;
+      if (existingPg.rows.length === 0) {
+        await pool.query(
+          `INSERT INTO "DriverVerifications" ("driverId", "authUid", status, "vehicleType", "vehiclePlate", "driverName", email, city, dni, phone, license, "photoUrl", "blockReason", "createdAt", "updatedAt")
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NULL, NOW(), NOW())`,
+          [driverId, authUid ? String(authUid) : null, finalStatus, vehicleType, vehiclePlate || null, driverName, email, city, dni, phone, license, photoUrl]
+        );
+        pgRow = { driverId, status: finalStatus, vehiclePlate: vehiclePlate || null, driverName, vehicleType, email };
+        pgCreated = true;
         console.log('[drivers] NEW DRIVER CREATED (PostgreSQL):', { driverId, email, driverName, authUid });
+      } else {
+        pgRow = existingPg.rows[0];
       }
       const pgCurrentPlate = pgRow.vehiclePlate || null;
       const pgCurrentName = pgRow.driverName || null;
@@ -1116,7 +1088,11 @@ router.post('/verification-register', requireRole('driver'), async (req, res) =>
         pgUpdates.license = license;
         pgUpdates.photoUrl = photoUrl;
       }
-      if (Object.keys(pgUpdates).length) await pgRow.update(pgUpdates);
+      if (Object.keys(pgUpdates).length) {
+        const setClauses = Object.keys(pgUpdates).map((k, i) => `"${k}" = $${i + 1}`).join(', ');
+        const vals = [...Object.values(pgUpdates), driverId];
+        await pool.query(`UPDATE "DriverVerifications" SET ${setClauses}, "updatedAt" = NOW() WHERE "driverId" = $${vals.length}`, vals);
+      }
       if (!usedFirestore) {
         finalStatus = pgUpdates.status || pgRow.status || finalStatus || 'pending';
       }
@@ -1200,11 +1176,8 @@ router.post('/documents', requireRole('driver'), uploadDriverDoc.single('file'),
     }
     // Guard: when verification is pending and no specific reupload is requested, block uploads.
     try {
-      const row = await DriverVerification.findOne({
-        where: { driverId },
-        attributes: ['status', 'reuploadDocumentTypes'],
-        raw: true,
-      });
+      const dvCheck = await pool.query('SELECT status, "reuploadDocumentTypes" FROM "DriverVerifications" WHERE "driverId" = $1 LIMIT 1', [driverId]);
+      const row = dvCheck.rows[0] || null;
       if (row && row.status === 'pending') {
         const types = Array.isArray(row.reuploadDocumentTypes) ? row.reuploadDocumentTypes : [];
         // Minimal fix: Agar admin ne reuploadDocumentTypes set nahi kiya, toh upload allow karo
@@ -1273,7 +1246,7 @@ router.post('/documents', requireRole('driver'), uploadDriverDoc.single('file'),
     }
     if (documentType === 'selfie') {
       try {
-        await DriverVerification.update({ photoUrl: fileUrl }, { where: { driverId } });
+        await pool.query('UPDATE "DriverVerifications" SET "photoUrl" = $1, "updatedAt" = NOW() WHERE "driverId" = $2', [fileUrl, driverId]);
       } catch (pgPhotoErr) {
         console.warn('[drivers] documents selfie PG photo sync skipped:', pgPhotoErr.message);
       }
@@ -1285,29 +1258,27 @@ router.post('/documents', requireRole('driver'), uploadDriverDoc.single('file'),
     }
     // Ensure a DriverVerification row exists so admin panel sees this driver as pending
     try {
-      await DriverVerification.findOrCreate({
-        where: { driverId },
-        defaults: { driverId, status: 'pending' },
-      });
+      const dvExist = await pool.query('SELECT 1 FROM "DriverVerifications" WHERE "driverId" = $1 LIMIT 1', [driverId]);
+      if (dvExist.rows.length === 0) {
+        await pool.query('INSERT INTO "DriverVerifications" ("driverId", status, "createdAt", "updatedAt") VALUES ($1, $2, NOW(), NOW())', [driverId, 'pending']);
+      }
     } catch (dvErr) {
-      console.warn('[drivers] documents: DriverVerification findOrCreate skipped:', dvErr.message);
+      console.warn('[drivers] documents: DriverVerification ensure skipped:', dvErr.message);
     }
     // If this upload was part of a reupload request, remove it from the pending list.
     // When all requested docs are uploaded, clear reuploadDocumentTypes entirely.
     try {
-      const dvRow = await DriverVerification.findOne({
-        where: { driverId },
-        attributes: ['reuploadDocumentTypes'],
-        raw: true,
-      });
+      const dvRes = await pool.query('SELECT "reuploadDocumentTypes" FROM "DriverVerifications" WHERE "driverId" = $1 LIMIT 1', [driverId]);
+      const dvRow = dvRes.rows[0] || null;
       if (dvRow) {
         const pending = Array.isArray(dvRow.reuploadDocumentTypes) ? dvRow.reuploadDocumentTypes : [];
         if (pending.includes(documentType)) {
           const remaining = pending.filter((t) => t !== documentType);
-          await DriverVerification.update(
-            { reuploadDocumentTypes: remaining.length > 0 ? remaining : null, reuploadMessage: remaining.length > 0 ? undefined : null },
-            { where: { driverId } }
-          );
+          if (remaining.length > 0) {
+            await pool.query('UPDATE "DriverVerifications" SET "reuploadDocumentTypes" = $1, "updatedAt" = NOW() WHERE "driverId" = $2', [JSON.stringify(remaining), driverId]);
+          } else {
+            await pool.query('UPDATE "DriverVerifications" SET "reuploadDocumentTypes" = NULL, "reuploadMessage" = NULL, "updatedAt" = NOW() WHERE "driverId" = $1', [driverId]);
+          }
           console.log('[drivers] documents reupload progress:', { driverId, documentType, remaining });
         }
       }
@@ -1333,31 +1304,17 @@ router.get('/documents', requireRole('driver'), async (req, res) => {
     }
     let list;
     try {
-      list = await DriverDocument.findAll({
-        where: { driverId },
-        order: [['createdAt', 'ASC']],
-        attributes: [
-          'id',
-          'documentType',
-          'fileUrl',
-          'fileName',
-          'issueDate',
-          'expiryDate',
-          'policyNumber',
-          'insuranceCompany',
-          'createdAt',
-        ],
-        raw: true,
-      });
+      const docListRes = await pool.query(
+        `SELECT id, "documentType", "fileUrl", "fileName", "issueDate", "expiryDate", "policyNumber", "insuranceCompany", "createdAt"
+         FROM "DriverDocuments" WHERE "driverId" = $1 ORDER BY "createdAt" ASC`, [driverId]
+      );
+      list = docListRes.rows;
     } catch (colErr) {
-      // Fallback: query with basic columns if newer columns are missing
       console.warn('[drivers] documents full query failed, using basic columns:', colErr.message);
-      list = await DriverDocument.findAll({
-        where: { driverId },
-        order: [['createdAt', 'ASC']],
-        attributes: ['id', 'documentType', 'fileUrl', 'fileName', 'createdAt'],
-        raw: true,
-      });
+      const fallbackRes = await pool.query(
+        'SELECT id, "documentType", "fileUrl", "fileName", "createdAt" FROM "DriverDocuments" WHERE "driverId" = $1 ORDER BY "createdAt" ASC', [driverId]
+      );
+      list = fallbackRes.rows;
     }
     return res.json({
       documents: list.map((d) => ({
@@ -1505,11 +1462,12 @@ router.post('/profile-photo', requireRole('driver'), uploadDriverDoc.single('fil
     }
     
     try {
-      const [row] = await DriverVerification.findOrCreate({
-        where: { driverId },
-        defaults: { driverId, photoUrl },
-      });
-      await row.update({ photoUrl });
+      const photoExist = await pool.query('SELECT 1 FROM "DriverVerifications" WHERE "driverId" = $1 LIMIT 1', [driverId]);
+      if (photoExist.rows.length === 0) {
+        await pool.query('INSERT INTO "DriverVerifications" ("driverId", "photoUrl", status, "createdAt", "updatedAt") VALUES ($1, $2, $3, NOW(), NOW())', [driverId, photoUrl, 'pending']);
+      } else {
+        await pool.query('UPDATE "DriverVerifications" SET "photoUrl" = $1, "updatedAt" = NOW() WHERE "driverId" = $2', [photoUrl, driverId]);
+      }
     } catch (pgErr) {
       console.error('[drivers] profile-photo PG update failed:', pgErr.message);
     }
