@@ -1051,7 +1051,20 @@ router.post('/dispatcher/ride', authMiddleware, async (req, res) => {
 /** GET /api/admin/drivers – List drivers for verification (DriverVerification table + Firestore merge for pre-fix drivers). */
 router.get('/drivers', authMiddleware, async (_req, res) => {
   try {
-    const list = await DriverVerification.findAll({ order: [['updatedAt', 'DESC']] });
+    // Use raw SQL to avoid Sequelize failing on missing columns (e.g. authUid before migration runs)
+    const pgResult = await pool.query(`
+      SELECT "driverId", status, "vehicleType", "vehiclePlate", "driverName", email, phone, city,
+             dni, license, "photoUrl", "blockReason", "adminNotes", "customRatePerKm",
+             "hasAntecedentesPoliciales", "hasAntecedentesPenales",
+             "vehicleBrand", "vehicleModel", "vehicleColor", "registrationYear", "vehicleCapacity",
+             "licenseClass", "licenseIssueDate", "licenseExpiryDate",
+             "dniIssueDate", "dniExpiryDate", "engineNumber", "chassisNumber",
+             "soatIssueDate", "soatExpiry", "reuploadDocumentTypes", "reuploadMessage",
+             "createdAt", "updatedAt"
+      FROM "DriverVerifications"
+      ORDER BY "updatedAt" DESC
+    `);
+    const list = pgResult.rows;
     const pgDriverIdSet = new Set(list.map((d) => d.driverId));
 
     // Merge: fetch Firestore drivers that are NOT yet in PostgreSQL (pre-fix applications).
@@ -1274,7 +1287,19 @@ router.get('/drivers/:id', authMiddleware, async (req, res) => {
     return res.status(400).json({ error: 'driverId required' });
   }
   try {
-    const row = await DriverVerification.findOne({ where: { driverId } });
+    // Use raw SQL to avoid Sequelize failing on missing columns (e.g. authUid before migration runs)
+    const pgRes = await pool.query(`
+      SELECT "driverId", status, "vehicleType", "vehiclePlate", "driverName", email, phone, city,
+             dni, license, "photoUrl", "blockReason", "adminNotes", "customRatePerKm",
+             "hasAntecedentesPoliciales", "hasAntecedentesPenales",
+             "vehicleBrand", "vehicleModel", "vehicleColor", "registrationYear", "vehicleCapacity",
+             "licenseClass", "licenseIssueDate", "licenseExpiryDate",
+             "dniIssueDate", "dniExpiryDate", "engineNumber", "chassisNumber",
+             "soatIssueDate", "soatExpiry", "reuploadDocumentTypes", "reuploadMessage",
+             "createdAt", "updatedAt"
+      FROM "DriverVerifications" WHERE "driverId" = $1 LIMIT 1
+    `, [driverId]);
+    const row = pgRes.rows[0] || null;
     if (!row) {
       const fsRow = await firestore.getDriverVerificationByDriverId(driverId);
       if (!fsRow) return res.status(404).json({ error: 'Driver not found' });
