@@ -454,8 +454,9 @@ router.post('/location', requireRole('driver'), async (req, res) => {
     console.log('[drivers] New driverId created:', id);
   }
 
-  // Only enforce verification when driverId was already known (provided or resolved from phone).
-  if (!BYPASS_DRIVER_VERIFICATION && (incomingDriverId || resolvedFromPhone)) {
+  // Enforce verification for ALL drivers — including brand new ones with no driverId yet.
+  // A new driver has no DriverVerification row → getVerificationStatus returns 'not_submitted' → blocked.
+  if (!BYPASS_DRIVER_VERIFICATION) {
     try {
       const { status, blockReason } = await getVerificationStatus(id);
       if (status !== 'approved') {
