@@ -1138,9 +1138,9 @@ router.get('/drivers', authMiddleware, async (_req, res) => {
             rating: null,
           });
         }
-      } catch (fsErr) {
-        console.warn('[admin] drivers Firestore merge skipped:', fsErr.message);
       }
+    } catch (fsErr) {
+      console.warn('[admin] drivers Firestore merge skipped:', fsErr.message);
     }
 
     // Sort merged list by updatedAt DESC
