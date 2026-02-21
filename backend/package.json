@@ -1,6 +1,6 @@
 {
   "name": "tbidder-backend",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Tbidder API — Node.js + Express + Socket.io + PostgreSQL",
   "main": "src/server.js",
   "scripts": {
