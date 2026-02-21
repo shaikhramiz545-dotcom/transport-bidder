@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Loader2, ShieldCheck, ShieldX, Ban, AlertTriangle, Download, ExternalLink } from 'lucide-react'
+import { ArrowLeft, Loader2, ShieldCheck, ShieldX, Ban, AlertTriangle, Download, ExternalLink, FileText, Printer } from 'lucide-react'
+import jsPDF from 'jspdf'
+import html2canvas from 'html2canvas'
 import api from '../services/api'
 import '../App.css'
 
@@ -30,6 +32,7 @@ const toDocArrayFromObject = (documentUrls = {}) => {
 function DriverDetail() {
   const { driverId } = useParams()
   const navigate = useNavigate()
+  const printRef = useRef(null)
   const [driver, setDriver] = useState(null)
   const [documents, setDocuments] = useState([])
   const [auditEntries, setAuditEntries] = useState([])
@@ -46,6 +49,7 @@ function DriverDetail() {
   const [reuploadMessage, setReuploadMessage] = useState('')
   const [hasAntecedentesPoliciales, setHasAntecedentesPoliciales] = useState(false)
   const [hasAntecedentesPenales, setHasAntecedentesPenales] = useState(false)
+  const [generatingPdf, setGeneratingPdf] = useState(false)
 
   useEffect(() => {
     if (!driverId) return
@@ -203,6 +207,39 @@ function DriverDetail() {
     }
   }
 
+  const handlePrint = () => {
+    window.print()
+  }
+
+  const handleExportPDF = async () => {
+    if (!printRef.current || !driver) return
+    setGeneratingPdf(true)
+    try {
+      const canvas = await html2canvas(printRef.current, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff'
+      })
+      const imgData = canvas.toDataURL('image/png')
+      const pdf = new jsPDF('p', 'mm', 'a4')
+      const pdfWidth = pdf.internal.pageSize.getWidth()
+      const pdfHeight = pdf.internal.pageSize.getHeight()
+      const imgWidth = canvas.width
+      const imgHeight = canvas.height
+      const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight)
+      const imgX = (pdfWidth - imgWidth * ratio) / 2
+      const imgY = 10
+      pdf.addImage(imgData, 'PNG', imgX, imgY, imgWidth * ratio, imgHeight * ratio)
+      pdf.save(`driver-${driver.driverId || 'profile'}.pdf`)
+    } catch (err) {
+      console.error('PDF generation failed:', err)
+      alert('Failed to generate PDF. Please try again.')
+    } finally {
+      setGeneratingPdf(false)
+    }
+  }
+
   const driverPhotoUrl = driver?.photoUrl
     ? (driver.photoUrl.startsWith('http') ? driver.photoUrl : `${uploadsBase}${driver.photoUrl}`)
     : null
@@ -268,6 +305,24 @@ function DriverDetail() {
           </div>
         </div>
         <div className="driver-detail-header-actions">
+          <button
+            type="button"
+            className="dashboard-btn small"
+            disabled={generatingPdf}
+            onClick={handleExportPDF}
+            title="Export to PDF"
+          >
+            {generatingPdf ? <Loader2 size={14} className="spin" /> : <FileText size={14} />}
+            {generatingPdf ? 'Generating...' : 'PDF'}
+          </button>
+          <button
+            type="button"
+            className="dashboard-btn small"
+            onClick={handlePrint}
+            title="Print"
+          >
+            <Printer size={14} /> Print
+          </button>
           {driver.status === 'pending' && (
             <>
               <button
@@ -317,14 +372,15 @@ function DriverDetail() {
           </button>
         </div>
       </header>
-      <p className="driver-detail-meta">
-        Last review: {formatDate(driver.updatedAt)}
-      </p>
-      <div className="rule-banner">
-        UI changes require approval. On edit, status resets to pending for re-approval.
-      </div>
+      <div ref={printRef}>
+        <p className="driver-detail-meta">
+          Last review: {formatDate(driver.updatedAt)}
+        </p>
+        <div className="rule-banner">
+          UI changes require approval. On edit, status resets to pending for re-approval.
+        </div>
 
-      <div className="driver-detail-grid">
+        <div className="driver-detail-grid">
         <div className="driver-detail-col">
           <section className="driver-detail-card">
             <h3>Personal Info</h3>
@@ -568,6 +624,7 @@ function DriverDetail() {
           <p>{driver.blockReason}</p>
         </section>
       )}
+      </div>
 
       {modal === 'approve' && (
         <div className="modal-overlay" onClick={() => setModal(null)}>
