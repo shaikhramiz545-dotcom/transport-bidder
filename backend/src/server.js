@@ -6,71 +6,68 @@ const errorHandler = require('./middleware/error-handler');
 const { db: firestoreDb } = require('./config/firebase');
 const { sequelize } = require('./config/db');
 
-// Auto-run pending SQL migrations on startup using DATABASE_URL or individual PG env vars.
-// This ensures schema changes (like migration 028) apply automatically on every start (local and EB deploy).
+// Auto-run pending SQL migrations on startup THEN sync Sequelize tables.
+// Migrations MUST complete before Sequelize sync to avoid "column does not exist" errors.
 (async () => {
+  // Step 1: Run pending SQL migrations
   const dbUrl = process.env.DATABASE_URL || 
     (process.env.PG_HOST && process.env.PG_DATABASE ? 
       `postgresql://${process.env.PG_USER}:${process.env.PG_PASSWORD}@${process.env.PG_HOST}:${process.env.PG_PORT || 5432}/${process.env.PG_DATABASE}` 
       : null);
   
-  if (!dbUrl) {
+  if (dbUrl) {
+    try {
+      const path = require('path');
+      const fs   = require('fs');
+      const { Pool } = require('pg');
+      
+      const poolConfig = {
+        connectionString: dbUrl,
+        connectionTimeoutMillis: 8000,
+      };
+      
+      // Only require SSL if connecting to an external DB like AWS RDS (i.e., not localhost)
+      if (!dbUrl.includes('localhost') && !dbUrl.includes('127.0.0.1')) {
+        poolConfig.ssl = { rejectUnauthorized: false };
+      }
+      
+      const pool = new Pool(poolConfig);
+      await pool.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
+        id SERIAL PRIMARY KEY, name TEXT UNIQUE NOT NULL, run_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`);
+      const migrationsDir = path.join(__dirname, '..', 'migrations');
+      if (fs.existsSync(migrationsDir)) {
+        const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
+        for (const file of files) {
+          const { rows } = await pool.query('SELECT 1 FROM schema_migrations WHERE name=$1', [file]);
+          if (rows.length > 0) continue;
+          const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+          const client = await pool.connect();
+          try {
+            await client.query('BEGIN');
+            await client.query(sql);
+            await client.query('INSERT INTO schema_migrations (name) VALUES ($1)', [file]);
+            await client.query('COMMIT');
+            console.log('[startup-migrate] Ran:', file);
+          } catch (err) {
+            await client.query('ROLLBACK');
+            console.error('[startup-migrate] Failed (non-fatal):', file, err.message);
+          } finally { client.release(); }
+        }
+        console.log('[startup-migrate] Done.');
+      }
+      await pool.end();
+    } catch (err) {
+      console.error('[startup-migrate] Error (non-fatal, server continues):', err.message);
+    }
+  } else {
     console.log('[startup-migrate] Database credentials not set — skipping migrations.');
-    return;
   }
-  try {
-    const path = require('path');
-    const fs   = require('fs');
-    const { Pool } = require('pg');
-    
-    const poolConfig = {
-      connectionString: dbUrl,
-      connectionTimeoutMillis: 8000,
-    };
-    
-    // Only require SSL if connecting to an external DB like AWS RDS (i.e., not localhost)
-    if (!dbUrl.includes('localhost') && !dbUrl.includes('127.0.0.1')) {
-      poolConfig.ssl = { rejectUnauthorized: false };
-    }
-    
-    const pool = new Pool(poolConfig);
-    await pool.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
-      id SERIAL PRIMARY KEY, name TEXT UNIQUE NOT NULL, run_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )`);
-    const migrationsDir = path.join(__dirname, '..', 'migrations');
-    if (!fs.existsSync(migrationsDir)) { await pool.end(); return; }
-    const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
-    for (const file of files) {
-      const { rows } = await pool.query('SELECT 1 FROM schema_migrations WHERE name=$1', [file]);
-      if (rows.length > 0) continue;
-      const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
-        await client.query(sql);
-        await client.query('INSERT INTO schema_migrations (name) VALUES ($1)', [file]);
-        await client.query('COMMIT');
-        console.log('[startup-migrate] Ran:', file);
-      } catch (err) {
-        await client.query('ROLLBACK');
-        console.error('[startup-migrate] Failed (non-fatal):', file, err.message);
-      } finally { client.release(); }
-    }
-    console.log('[startup-migrate] Done.');
-    await pool.end();
-  } catch (err) {
-    console.error('[startup-migrate] Error (non-fatal, server continues):', err.message);
-  }
-})();
 
-// Auto-create Sequelize-managed tables (AppUsers, EmailOtps, etc.) if they
-// don't exist yet. `alter: false` avoids mutating existing columns; it only
-// creates tables that are missing.
-(async () => {
+  // Step 2: Sync Sequelize tables (runs AFTER migrations complete)
   try {
     await sequelize.authenticate();
     console.log('✅ PostgreSQL connected');
-    // Import models so their definitions are registered before sync
     require('./models');
     await sequelize.sync({ alter: false });
     console.log('✅ Sequelize tables synced');
