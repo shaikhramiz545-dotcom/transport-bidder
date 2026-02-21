@@ -20,7 +20,7 @@ const uploadsBase = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.
 const toDocArrayFromObject = (documentUrls = {}) => {
   const list = []
   Object.entries(documentUrls || {}).forEach(([documentType, fileUrl]) => {
-    if (!Object.prototype.hasOwnProperty.call(DOC_TYPES, documentType)) return
+    if (!DOC_TYPES.includes(documentType)) return
     if (!fileUrl || typeof fileUrl !== 'string') return
     list.push({ documentType, fileUrl })
   })

@@ -739,9 +739,9 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
     Color statusColor;
     IconData statusIcon;
     String statusLabel;
-    final isDraft = !_hasSubmitted &&
+    final isDraft = _status == 'not_submitted' || (!_hasSubmitted &&
         (!_hasVerification ||
-            (_status == 'pending' && _documentsCount == 0 && _reuploadDocumentTypes.isEmpty));
+            (_status == 'pending' && _documentsCount == 0 && _reuploadDocumentTypes.isEmpty)));
     final submittedPending = _hasSubmitted && (_status == 'pending' || isDraft);
     if (submittedPending) {
       // Bug fix: show "Submitted" even if backend hasn't updated yet.

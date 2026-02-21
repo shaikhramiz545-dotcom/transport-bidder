@@ -1865,26 +1865,38 @@ router.get('/drivers/:id/documents', authMiddleware, async (req, res) => {
   try {
     const driverId = req.params.id;
     if (!driverId) return res.status(400).json({ documents: [] });
-    const list = await DriverDocument.findAll({
-      where: { driverId },
-      order: [['createdAt', 'ASC']],
-      attributes: [
-        'id',
-        'documentType',
-        'fileUrl',
-        'fileName',
-        'issueDate',
-        'expiryDate',
-        'policyNumber',
-        'insuranceCompany',
-        'certificateNumber',
-        'inspectionCenter',
-        'status',
-        'adminFeedback',
-        'createdAt',
-      ],
-      raw: true,
-    });
+    let list;
+    try {
+      list = await DriverDocument.findAll({
+        where: { driverId },
+        order: [['createdAt', 'ASC']],
+        attributes: [
+          'id',
+          'documentType',
+          'fileUrl',
+          'fileName',
+          'issueDate',
+          'expiryDate',
+          'policyNumber',
+          'insuranceCompany',
+          'certificateNumber',
+          'inspectionCenter',
+          'status',
+          'adminFeedback',
+          'createdAt',
+        ],
+        raw: true,
+      });
+    } catch (colErr) {
+      // Fallback: query with basic columns if newer columns (status, adminFeedback, etc.) are missing
+      console.warn('[admin] driver documents full query failed, using basic columns:', colErr.message);
+      list = await DriverDocument.findAll({
+        where: { driverId },
+        order: [['createdAt', 'ASC']],
+        attributes: ['id', 'documentType', 'fileUrl', 'fileName', 'createdAt'],
+        raw: true,
+      });
+    }
     return res.json({
       documents: list.map((d) => ({
         id: d.id,

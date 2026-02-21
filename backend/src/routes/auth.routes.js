@@ -370,8 +370,9 @@ router.post('/verify-email', async (req, res) => {
     }
     await row.destroy();
 
-    // Mark verified
-    const user = await AppUser.findOne({ where: { email: e, role: r } });
+    // Mark verified – try with role filter first, then email-only fallback
+    let user = await AppUser.findOne({ where: { email: e, role: r } });
+    if (!user) user = await AppUser.findOne({ where: { email: e } });
     if (!user) return res.status(404).json({ success: false, message: 'Account not found' });
     user.emailVerified = true;
     await user.save();
@@ -409,9 +410,14 @@ router.post('/email-login', async (req, res) => {
     const r = typeof role === 'string' ? role.toLowerCase().trim() : null;
     if (!e || !pwd) return res.status(400).json({ success: false, message: 'Email and password required' });
 
-    const where = { email: e };
-    if (r) where.role = r;
-    const user = await AppUser.findOne({ where });
+    // Try with role filter first, then fallback to email-only to avoid role mismatch false negatives
+    let user = null;
+    if (r) {
+      user = await AppUser.findOne({ where: { email: e, role: r } });
+    }
+    if (!user) {
+      user = await AppUser.findOne({ where: { email: e } });
+    }
     if (!user || user.status === 'disabled') {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }

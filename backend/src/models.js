@@ -107,7 +107,7 @@ const DriverDocument = sequelize.define('DriverDocument', {
   insuranceCompany: { type: DataTypes.STRING, allowNull: true }, // For SOAT
   certificateNumber: { type: DataTypes.STRING, allowNull: true }, // For Revisión Técnica
   inspectionCenter: { type: DataTypes.STRING, allowNull: true }, // For Revisión Técnica
-  status: { type: DataTypes.STRING, allowNull: false, defaultValue: 'pending' }, // pending | approved | rejected | expired
+  status: { type: DataTypes.STRING, allowNull: true, defaultValue: 'pending' }, // pending | approved | rejected | expired
   adminFeedback: { type: DataTypes.TEXT, allowNull: true }, // Reason for rejection
 }, { timestamps: true, updatedAt: false });
 

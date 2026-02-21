@@ -69,9 +69,13 @@ api.interceptors.response.use(
     const status = err.response?.status
     const path = err.config?.url || ''
     if (status === 500 && err.config?.method === 'get') {
-      const data = getFallback(path)
-      if (data) {
-        return Promise.resolve({ data, status: 200, config: err.config })
+      // Never swallow document/audit endpoint errors — show them to admin
+      const isDocOrAudit = /\/documents|\/audit/.test(path)
+      if (!isDocOrAudit) {
+        const data = getFallback(path)
+        if (data) {
+          return Promise.resolve({ data, status: 200, config: err.config })
+        }
       }
     }
     return Promise.reject(err)

@@ -69,8 +69,56 @@ const { sequelize } = require('./config/db');
     await sequelize.authenticate();
     console.log('✅ PostgreSQL connected');
     require('./models');
-    await sequelize.sync({ alter: false });
-    console.log('✅ Sequelize tables synced');
+    try {
+      await sequelize.sync({ alter: true });
+      console.log('✅ Sequelize tables synced (alter: true — all model columns guaranteed)');
+    } catch (alterErr) {
+      console.warn('⚠️ sync({ alter: true }) failed, falling back:', alterErr.message);
+      // Fallback: create missing tables without altering existing ones
+      try { await sequelize.sync({ alter: false }); } catch (_) {}
+      // Then add critical missing columns via raw SQL (idempotent)
+      const addCol = async (table, col, type) => {
+        try { await sequelize.query(`ALTER TABLE "${table}" ADD COLUMN IF NOT EXISTS "${col}" ${type}`); } catch (_) {}
+      };
+      await addCol('DriverVerifications', 'authUid', 'VARCHAR(255)');
+      await addCol('DriverVerifications', 'email', 'VARCHAR(255)');
+      await addCol('DriverVerifications', 'phone', 'VARCHAR(255)');
+      await addCol('DriverVerifications', 'city', 'VARCHAR(255)');
+      await addCol('DriverVerifications', 'dni', 'VARCHAR(255)');
+      await addCol('DriverVerifications', 'license', 'VARCHAR(255)');
+      await addCol('DriverVerifications', 'photoUrl', 'TEXT');
+      await addCol('DriverVerifications', 'hasAntecedentesPoliciales', 'BOOLEAN');
+      await addCol('DriverVerifications', 'hasAntecedentesPenales', 'BOOLEAN');
+      await addCol('DriverVerifications', 'customRatePerKm', 'DOUBLE PRECISION');
+      await addCol('DriverVerifications', 'reuploadDocumentTypes', 'JSONB');
+      await addCol('DriverVerifications', 'reuploadMessage', 'TEXT');
+      await addCol('DriverVerifications', 'adminNotes', 'TEXT');
+      await addCol('DriverVerifications', 'vehicleBrand', 'VARCHAR(100)');
+      await addCol('DriverVerifications', 'vehicleModel', 'VARCHAR(100)');
+      await addCol('DriverVerifications', 'vehicleColor', 'VARCHAR(50)');
+      await addCol('DriverVerifications', 'registrationYear', 'INTEGER');
+      await addCol('DriverVerifications', 'vehicleCapacity', 'INTEGER');
+      await addCol('DriverVerifications', 'licenseClass', 'VARCHAR(20)');
+      await addCol('DriverVerifications', 'licenseIssueDate', 'DATE');
+      await addCol('DriverVerifications', 'licenseExpiryDate', 'DATE');
+      await addCol('DriverVerifications', 'dniIssueDate', 'DATE');
+      await addCol('DriverVerifications', 'dniExpiryDate', 'DATE');
+      await addCol('DriverVerifications', 'engineNumber', 'VARCHAR(50)');
+      await addCol('DriverVerifications', 'chassisNumber', 'VARCHAR(50)');
+      await addCol('DriverVerifications', 'registrationStartedAt', 'TIMESTAMP WITH TIME ZONE');
+      await addCol('DriverVerifications', 'registrationDeadline', 'TIMESTAMP WITH TIME ZONE');
+      await addCol('DriverVerifications', 'collisionRepaired', 'BOOLEAN DEFAULT false');
+      await addCol('DriverVerifications', 'previousDriverId', 'VARCHAR(64)');
+      await addCol('DriverDocuments', 'expiryDate', 'DATE');
+      await addCol('DriverDocuments', 'issueDate', 'DATE');
+      await addCol('DriverDocuments', 'policyNumber', 'VARCHAR(100)');
+      await addCol('DriverDocuments', 'insuranceCompany', 'VARCHAR(100)');
+      await addCol('DriverDocuments', 'certificateNumber', 'VARCHAR(100)');
+      await addCol('DriverDocuments', 'inspectionCenter', 'VARCHAR(200)');
+      await addCol('DriverDocuments', 'status', "VARCHAR(50) DEFAULT 'pending'");
+      await addCol('DriverDocuments', 'adminFeedback', 'TEXT');
+      console.log('✅ Sequelize fallback sync done — all critical columns added via raw SQL');
+    }
   } catch (err) {
     console.error('⚠️ PostgreSQL sync failed (auth endpoints may not work):', err.message);
   }

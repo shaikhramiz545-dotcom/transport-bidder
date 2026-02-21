@@ -25,12 +25,17 @@ async function resolveAuthDriverId(req) {
   // PRIMARY: Use Firebase Auth UID (single source of truth)
   const authUid = req.auth?.userId || req.auth?.uid || req.auth?.sub;
   if (authUid) {
-    const byAuthUid = await DriverVerification.findOne({ 
-      where: { authUid: String(authUid) }, 
-      attributes: ['driverId'], 
-      raw: true 
-    });
-    if (byAuthUid?.driverId) return String(byAuthUid.driverId);
+    try {
+      const byAuthUid = await DriverVerification.findOne({ 
+        where: { authUid: String(authUid) }, 
+        attributes: ['driverId'], 
+        raw: true 
+      });
+      if (byAuthUid?.driverId) return String(byAuthUid.driverId);
+    } catch (authUidErr) {
+      // Column 'authUid' may not exist if migration 006/029 hasn't run yet – fall through to phone/email
+      console.warn('[drivers] resolveAuthDriverId authUid lookup skipped:', authUidErr.message);
+    }
   }
 
   // FALLBACK 1: Phone mapping (for existing drivers without authUid)
@@ -145,24 +150,36 @@ async function upsertDriverDocumentRecord(driverId, documentType, fileUrl, metad
   if (metadata.certificateNumber) defaults.certificateNumber = metadata.certificateNumber;
   if (metadata.inspectionCenter) defaults.inspectionCenter = metadata.inspectionCenter;
 
-  const [doc] = await DriverDocument.findOrCreate({
-    where: { driverId, documentType },
-    defaults,
-  });
+  try {
+    const [doc] = await DriverDocument.findOrCreate({
+      where: { driverId, documentType },
+      defaults,
+    });
 
-  const updates = {};
-  if (doc.fileUrl !== fileUrl) updates.fileUrl = fileUrl;
-  const nextName = fileNameFromUrl(fileUrl, `${documentType}.jpg`);
-  if (doc.fileName !== nextName) updates.fileName = nextName;
-  if (metadata.issueDate && doc.issueDate !== metadata.issueDate) updates.issueDate = metadata.issueDate;
-  if (metadata.expiryDate && doc.expiryDate !== metadata.expiryDate) updates.expiryDate = metadata.expiryDate;
-  if (metadata.policyNumber && doc.policyNumber !== metadata.policyNumber) updates.policyNumber = metadata.policyNumber;
-  if (metadata.insuranceCompany && doc.insuranceCompany !== metadata.insuranceCompany) updates.insuranceCompany = metadata.insuranceCompany;
-  if (metadata.certificateNumber && doc.certificateNumber !== metadata.certificateNumber) updates.certificateNumber = metadata.certificateNumber;
-  if (metadata.inspectionCenter && doc.inspectionCenter !== metadata.inspectionCenter) updates.inspectionCenter = metadata.inspectionCenter;
+    const updates = {};
+    if (doc.fileUrl !== fileUrl) updates.fileUrl = fileUrl;
+    const nextName = fileNameFromUrl(fileUrl, `${documentType}.jpg`);
+    if (doc.fileName !== nextName) updates.fileName = nextName;
+    if (metadata.issueDate && doc.issueDate !== metadata.issueDate) updates.issueDate = metadata.issueDate;
+    if (metadata.expiryDate && doc.expiryDate !== metadata.expiryDate) updates.expiryDate = metadata.expiryDate;
+    if (metadata.policyNumber && doc.policyNumber !== metadata.policyNumber) updates.policyNumber = metadata.policyNumber;
+    if (metadata.insuranceCompany && doc.insuranceCompany !== metadata.insuranceCompany) updates.insuranceCompany = metadata.insuranceCompany;
+    if (metadata.certificateNumber && doc.certificateNumber !== metadata.certificateNumber) updates.certificateNumber = metadata.certificateNumber;
+    if (metadata.inspectionCenter && doc.inspectionCenter !== metadata.inspectionCenter) updates.inspectionCenter = metadata.inspectionCenter;
 
-  if (Object.keys(updates).length > 0) {
-    await doc.update(updates);
+    if (Object.keys(updates).length > 0) {
+      await doc.update(updates);
+    }
+  } catch (err) {
+    // Fallback: raw SQL upsert when Sequelize model has columns the DB doesn't have yet
+    console.warn('[drivers] upsertDriverDocumentRecord ORM failed, raw SQL fallback:', err.message);
+    const { sequelize: sq } = require('../config/db');
+    await sq.query(
+      `INSERT INTO "DriverDocuments" ("driverId", "documentType", "fileUrl", "fileName", "createdAt")
+       VALUES (:driverId, :documentType, :fileUrl, :fileName, NOW())
+       ON CONFLICT ("driverId", "documentType") DO UPDATE SET "fileUrl" = :fileUrl, "fileName" = :fileName`,
+      { replacements: { driverId, documentType, fileUrl, fileName: fileNameFromUrl(fileUrl, `${documentType}.jpg`) } }
+    );
   }
 }
 
@@ -355,7 +372,8 @@ function normalizePhone(phone) {
   return phone.trim();
 }
 
-/** Get verification status for driver. Prefer PostgreSQL (admin source of truth), then Firestore. */
+/** Get verification status for driver. Prefer PostgreSQL (admin source of truth), then Firestore.
+ *  Returns 'not_submitted' when no verification row exists (driver never registered/uploaded docs). */
 async function getVerificationStatus(driverId) {
   const id = String(driverId);
   try {
@@ -366,11 +384,11 @@ async function getVerificationStatus(driverId) {
   }
   try {
     const row = await db.getDriverVerificationByDriverId(id);
-    return { status: row ? row.status : 'pending', blockReason: row ? row.blockReason : null };
+    if (row) return { status: row.status || 'pending', blockReason: row.blockReason || null };
   } catch (fsErr) {
     console.warn('[drivers] getVerificationStatus Firestore skipped:', fsErr.message);
   }
-  return { status: 'pending', blockReason: null };
+  return { status: 'not_submitted', blockReason: null };
 }
 
 const REQUIRED_DOC_COUNT = DRIVER_DOC_TYPES.length; // 7
@@ -383,7 +401,12 @@ async function canGoOnline(driverId) {
   const id = String(driverId);
   const { status, blockReason } = await getVerificationStatus(id);
   if (status !== 'approved') {
-    const reason = blockReason || (status === 'pending' ? 'Profile pending approval.' : 'Account temporarily blocked. Please contact customer service.');
+    let reason = blockReason;
+    if (!reason) {
+      if (status === 'not_submitted') reason = 'Documents not submitted. Please upload your documents.';
+      else if (status === 'pending') reason = 'Profile pending approval.';
+      else reason = 'Account temporarily blocked. Please contact customer service.';
+    }
     return { canGoOnline: false, reason, code: 'DRIVER_NOT_APPROVED' };
   }
   try {
@@ -446,7 +469,12 @@ router.post('/location', requireRole('driver'), async (req, res) => {
       const { status, blockReason } = await getVerificationStatus(id);
       if (status !== 'approved') {
         await _delOnline(id);
-        const message = blockReason || (status === 'pending' ? 'Profile pending re-approval.' : 'Account temporarily blocked. Please contact customer service.');
+        let message = blockReason;
+        if (!message) {
+          if (status === 'not_submitted') message = 'Documents not submitted. Please upload your documents.';
+          else if (status === 'pending') message = 'Profile pending re-approval.';
+          else message = 'Account temporarily blocked. Please contact customer service.';
+        }
         return res.status(403).json({
           ok: false,
           blocked: true,
@@ -776,7 +804,7 @@ router.get('/verification-status', requireRole('driver'), async (req, res) => {
   } catch (err) {
     console.error('[drivers] verification-status', err.message);
     return res.status(500).json({
-      status: 'pending',
+      status: 'not_submitted',
       blockReason: null,
       canGoOnline: false,
       reuploadRequested: null,
@@ -1211,24 +1239,37 @@ router.post('/documents', requireRole('driver'), uploadDriverDoc.single('file'),
     if (certificateNumber) docData.certificateNumber = certificateNumber;
     if (inspectionCenter) docData.inspectionCenter = inspectionCenter;
     
-    const [doc] = await DriverDocument.findOrCreate({
-      where: { driverId, documentType },
-      defaults: docData,
-    });
-    // NEW: Update with all metadata fields if document exists
-    if (doc) {
-      const updates = {};
-      if (doc.fileUrl !== fileUrl) updates.fileUrl = fileUrl;
-      if (doc.fileName !== (req.file.originalname || req.file.filename)) updates.fileName = req.file.originalname || req.file.filename;
-      if (issueDate && doc.issueDate !== issueDate) updates.issueDate = issueDate;
-      if (expiryDate && doc.expiryDate !== expiryDate) updates.expiryDate = expiryDate;
-      if (policyNumber && doc.policyNumber !== policyNumber) updates.policyNumber = policyNumber;
-      if (insuranceCompany && doc.insuranceCompany !== insuranceCompany) updates.insuranceCompany = insuranceCompany;
-      if (certificateNumber && doc.certificateNumber !== certificateNumber) updates.certificateNumber = certificateNumber;
-      if (inspectionCenter && doc.inspectionCenter !== inspectionCenter) updates.inspectionCenter = inspectionCenter;
-      if (Object.keys(updates).length > 0) {
-        await doc.update(updates);
+    let doc;
+    try {
+      [doc] = await DriverDocument.findOrCreate({
+        where: { driverId, documentType },
+        defaults: docData,
+      });
+      // Update with all metadata fields if document already existed
+      if (doc) {
+        const updates = {};
+        if (doc.fileUrl !== fileUrl) updates.fileUrl = fileUrl;
+        if (doc.fileName !== (req.file.originalname || req.file.filename)) updates.fileName = req.file.originalname || req.file.filename;
+        if (issueDate && doc.issueDate !== issueDate) updates.issueDate = issueDate;
+        if (expiryDate && doc.expiryDate !== expiryDate) updates.expiryDate = expiryDate;
+        if (policyNumber && doc.policyNumber !== policyNumber) updates.policyNumber = policyNumber;
+        if (insuranceCompany && doc.insuranceCompany !== insuranceCompany) updates.insuranceCompany = insuranceCompany;
+        if (certificateNumber && doc.certificateNumber !== certificateNumber) updates.certificateNumber = certificateNumber;
+        if (inspectionCenter && doc.inspectionCenter !== inspectionCenter) updates.inspectionCenter = inspectionCenter;
+        if (Object.keys(updates).length > 0) {
+          await doc.update(updates);
+        }
       }
+    } catch (docErr) {
+      // Fallback: if Sequelize fails (e.g. missing 'status' column), use raw SQL with basic columns
+      console.warn('[drivers] documents findOrCreate failed, using raw SQL fallback:', docErr.message);
+      const { sequelize } = require('../config/db');
+      await sequelize.query(
+        `INSERT INTO "DriverDocuments" ("driverId", "documentType", "fileUrl", "fileName", "createdAt")
+         VALUES (:driverId, :documentType, :fileUrl, :fileName, NOW())
+         ON CONFLICT ("driverId", "documentType") DO UPDATE SET "fileUrl" = :fileUrl, "fileName" = :fileName`,
+        { replacements: { driverId, documentType, fileUrl, fileName: req.file.originalname || req.file.filename }, type: sequelize.constructor.QueryTypes.UPSERT }
+      );
     }
     if (documentType === 'selfie') {
       try {
@@ -1290,22 +1331,34 @@ router.get('/documents', requireRole('driver'), async (req, res) => {
     if (authDriverId && requestedDriverId && requestedDriverId !== authDriverId) {
       return res.status(403).json({ documents: [] });
     }
-    const list = await DriverDocument.findAll({
-      where: { driverId },
-      order: [['createdAt', 'ASC']],
-      attributes: [
-        'id',
-        'documentType',
-        'fileUrl',
-        'fileName',
-        'issueDate',
-        'expiryDate',
-        'policyNumber',
-        'insuranceCompany',
-        'createdAt',
-      ],
-      raw: true,
-    });
+    let list;
+    try {
+      list = await DriverDocument.findAll({
+        where: { driverId },
+        order: [['createdAt', 'ASC']],
+        attributes: [
+          'id',
+          'documentType',
+          'fileUrl',
+          'fileName',
+          'issueDate',
+          'expiryDate',
+          'policyNumber',
+          'insuranceCompany',
+          'createdAt',
+        ],
+        raw: true,
+      });
+    } catch (colErr) {
+      // Fallback: query with basic columns if newer columns are missing
+      console.warn('[drivers] documents full query failed, using basic columns:', colErr.message);
+      list = await DriverDocument.findAll({
+        where: { driverId },
+        order: [['createdAt', 'ASC']],
+        attributes: ['id', 'documentType', 'fileUrl', 'fileName', 'createdAt'],
+        raw: true,
+      });
+    }
     return res.json({
       documents: list.map((d) => ({
         id: d.id,
