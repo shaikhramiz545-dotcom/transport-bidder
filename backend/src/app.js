@@ -34,7 +34,7 @@ app.set('trust proxy', 1);
 //    OPTIONS requests get proper Access-Control-Allow-Origin headers.
 const allowedOrigins = process.env.ALLOWED_ORIGINS 
   ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()) 
-  : ['https://t-bidder.netlify.app', 'https://admin.transportbidder.com', 'http://localhost:3000'];
+  : ['https://t-bidder.netlify.app', 'https://admin.transportbidder.com', 'https://tbidder-admin.web.app', 'http://admin.transportbidder.com.s3-website.ap-south-1.amazonaws.com', 'http://localhost:3000'];
 
 const corsOptions = {
   origin: (origin, callback) => {
