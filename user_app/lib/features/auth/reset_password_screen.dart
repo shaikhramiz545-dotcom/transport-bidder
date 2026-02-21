@@ -178,6 +178,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
               controller: _otpController,
               keyboardType: TextInputType.number,
               maxLength: 6,
+              textInputAction: TextInputAction.next,
               decoration: InputDecoration(
                 labelText: _t('enter_otp'),
                 hintText: '••••••',

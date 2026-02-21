@@ -34,7 +34,7 @@ class HistoryService {
       if (to != null && to.isNotEmpty) params['to'] = to;
       if (userPhone != null && userPhone.isNotEmpty) params['userPhone'] = userPhone;
 
-      final uri = Uri.parse('$_base/api/rides').replace(queryParameters: params);
+      final uri = Uri.parse('$_base/api/v1/rides').replace(queryParameters: params);
       final res = await http.get(uri, headers: await _authHeaders()).timeout(
             const Duration(seconds: 15),
             onTimeout: () => throw Exception('Timeout'),

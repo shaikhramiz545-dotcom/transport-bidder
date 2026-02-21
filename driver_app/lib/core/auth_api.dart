@@ -10,7 +10,7 @@ class AuthApi {
 
   final String _base;
 
-  String _url(String path) => '$_base/api/auth$path';
+  String _url(String path) => '$_base/api/v1/auth$path';
 
   /// Extract error message from backend response — handles all formats:
   /// { message: '...' }, { error: { message: '...' } }, { error: '...' }
@@ -390,7 +390,7 @@ class AuthApi {
   /// Check if driver is registered and get verification status
   Future<VerifyResponse> getVerificationStatus(String phone) async {
     try {
-      final uri = Uri.parse('$_base/api/drivers/verification-status').replace(
+      final uri = Uri.parse('$_base/api/v1/drivers/verification-status').replace(
         queryParameters: {'phone': phone},
       );
       final res = await http

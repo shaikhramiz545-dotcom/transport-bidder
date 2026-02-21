@@ -5,7 +5,7 @@ const { healthCheck } = require('../config/db');
 
 const router = express.Router();
 
-async function checkSmtp() {
+async function checkEmailService() {
   const host = process.env.SMTP_HOST;
   if (!host) return { ok: false, msg: 'SMTP_HOST not set' };
   try {
@@ -16,7 +16,7 @@ async function checkSmtp() {
       auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
     });
     await transporter.verify();
-    return { ok: true, msg: `Connected (${host})` };
+    return { ok: true, msg: `Connected to AWS SES via SMTP (${host})` };
   } catch (err) {
     return { ok: false, msg: err.message };
   }
@@ -39,9 +39,9 @@ async function checkGoogleMaps() {
 
 router.get('/', async (_req, res) => {
   try {
-    const [dbOk, smtpStatus, mapsStatus] = await Promise.all([
+    const [dbOk, emailStatus, mapsStatus] = await Promise.all([
       healthCheck().catch(() => false),
-      checkSmtp(),
+      checkEmailService(),
       checkGoogleMaps(),
     ]);
 
@@ -50,9 +50,9 @@ router.get('/', async (_req, res) => {
       service: 'tbidder-api',
       db: dbOk ? 'postgresql' : 'disconnected',
       email: {
-        ok: smtpStatus.ok,
-        provider: process.env.SMTP_HOST || 'not configured',
-        msg: smtpStatus.msg,
+        ok: emailStatus.ok,
+        provider: process.env.SMTP_HOST || 'AWS SES',
+        msg: emailStatus.msg,
       },
       googleMaps: {
         ok: mapsStatus.ok,

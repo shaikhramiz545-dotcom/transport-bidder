@@ -396,6 +396,7 @@ class _SignupVerificationScreenState extends State<SignupVerificationScreen> {
                               maxLength: 6,
                               textAlign: TextAlign.center,
                               style: Theme.of(context).textTheme.headlineSmall?.copyWith(letterSpacing: 8),
+                              onChanged: (v) { if (v.length == 6 && !_verifyingOtp) _verifyPhoneOtpManual(); },
                               decoration: InputDecoration(
                                 hintText: '······',
                                 counterText: '',

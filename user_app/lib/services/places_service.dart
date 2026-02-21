@@ -32,7 +32,7 @@ class PlacesService {
       final token = _sessionToken ?? _newSessionToken();
 
       // 1. Primary: backend proxy (works on web + mobile)
-      final proxyUri = Uri.parse('$_proxyBaseUrl/api/places/autocomplete')
+      final proxyUri = Uri.parse('$_proxyBaseUrl/api/v1/places/autocomplete')
           .replace(queryParameters: {'input': trimmed, 'sessiontoken': token});
       
       final proxyRes = await http.get(proxyUri).timeout(
@@ -78,7 +78,7 @@ class PlacesService {
   Future<({double lat, double lng})?> getPlaceDetails(String placeId) async {
     try {
       // 1. Primary: Backend Proxy
-      final Uri proxyUri = Uri.parse('$_proxyBaseUrl/api/places/details')
+      final Uri proxyUri = Uri.parse('$_proxyBaseUrl/api/v1/places/details')
           .replace(queryParameters: {'place_id': placeId});
       
       final proxyRes = await http.get(proxyUri).timeout(

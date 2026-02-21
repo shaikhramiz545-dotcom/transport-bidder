@@ -170,7 +170,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (token != null && token.trim().isNotEmpty) {
         headers['Authorization'] = 'Bearer ${token.trim()}';
       }
-      final uri = Uri.parse('$kApiBaseUrl/api/drivers/verification-status').replace(queryParameters: {'driverId': driverId});
+      final uri = Uri.parse('$kApiBaseUrl/api/v1/drivers/verification-status').replace(queryParameters: {'driverId': driverId});
       final res = await http.get(uri, headers: headers).timeout(const Duration(seconds: 10));
       if (res.statusCode != 200) return;
       final data = json.decode(res.body) as Map<String, dynamic>? ?? {};
@@ -196,7 +196,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (token != null && token.trim().isNotEmpty) {
         headers['Authorization'] = 'Bearer ${token.trim()}';
       }
-      final uri = Uri.parse('$kApiBaseUrl/api/drivers/profile').replace(queryParameters: {'driverId': driverId});
+      final uri = Uri.parse('$kApiBaseUrl/api/v1/drivers/profile').replace(queryParameters: {'driverId': driverId});
       final res = await http.get(uri, headers: headers).timeout(const Duration(seconds: 10));
       if (res.statusCode != 200) return null;
       final data = json.decode(res.body) as Map<String, dynamic>?;
@@ -214,7 +214,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (token != null && token.trim().isNotEmpty) {
         headers['Authorization'] = 'Bearer ${token.trim()}';
       }
-      final uri = Uri.parse('$kApiBaseUrl/api/drivers/resolve-id').replace(queryParameters: {'phone': phone});
+      final uri = Uri.parse('$kApiBaseUrl/api/v1/drivers/resolve-id').replace(queryParameters: {'phone': phone});
       final res = await http.get(uri, headers: headers).timeout(const Duration(seconds: 10));
       if (res.statusCode != 200) return null;
       final data = json.decode(res.body) as Map<String, dynamic>?;
@@ -250,7 +250,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         headers['Authorization'] = 'Bearer ${token.trim()}';
       }
       final res = await http.post(
-        Uri.parse('$kApiBaseUrl/api/drivers/verification-register'),
+        Uri.parse('$kApiBaseUrl/api/v1/drivers/verification-register'),
         headers: headers,
         body: json.encode(body),
       ).timeout(const Duration(seconds: 10));
@@ -385,7 +385,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
       
       final token = await ProfileStorageService.getAuthToken();
-      final uri = Uri.parse('$kApiBaseUrl/api/drivers/profile-photo');
+      final uri = Uri.parse('$kApiBaseUrl/api/v1/drivers/profile-photo');
       final request = http.MultipartRequest('POST', uri);
       if (token != null && token.trim().isNotEmpty) {
         request.headers['Authorization'] = 'Bearer ${token.trim()}';

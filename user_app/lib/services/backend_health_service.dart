@@ -16,7 +16,7 @@ class BackendHealthService {
   /// Returns true if backend responds with 200 and body contains status: 'ok'.
   Future<bool> check() async {
     try {
-      final uri = Uri.parse('$_baseUrl/api/health');
+      final uri = Uri.parse('$_baseUrl/api/v1/health');
       final response = await http.get(uri).timeout(
             _timeout,
             onTimeout: () => throw Exception('Health check timeout'),
@@ -32,7 +32,7 @@ class BackendHealthService {
   /// Same as [check] but returns a short message for debugging.
   Future<String> checkWithMessage() async {
     try {
-      final uri = Uri.parse('$_baseUrl/api/health');
+      final uri = Uri.parse('$_baseUrl/api/v1/health');
       final response = await http.get(uri).timeout(
             _timeout,
             onTimeout: () => throw Exception('Health check timeout'),

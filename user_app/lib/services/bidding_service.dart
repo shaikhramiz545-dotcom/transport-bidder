@@ -46,7 +46,7 @@ class BiddingService {
     String? deliveryPhotoUrl,
   }) async {
     try {
-      final uri = Uri.parse('$_base/api/rides');
+      final uri = Uri.parse('$_base/api/v1/rides');
       final body = {
         'pickupLat': pickupLat,
         'pickupLng': pickupLng,
@@ -100,7 +100,7 @@ class BiddingService {
   /// Fetches ride with bids (for polling).
   Future<Map<String, dynamic>?> getRide(String rideId) async {
     try {
-      final uri = Uri.parse('$_base/api/rides/$rideId');
+      final uri = Uri.parse('$_base/api/v1/rides/$rideId');
       final res = await http.get(uri, headers: await _authHeaders()).timeout(
             const Duration(seconds: 10),
             onTimeout: () => throw Exception('Timeout'),
@@ -116,7 +116,7 @@ class BiddingService {
   /// Fetches driver's last location for accepted ride (for live tracking).
   Future<({double? lat, double? lng})?> getDriverLocation(String rideId) async {
     try {
-      final uri = Uri.parse('$_base/api/rides/$rideId/driver-location');
+      final uri = Uri.parse('$_base/api/v1/rides/$rideId/driver-location');
       final res = await http.get(uri, headers: await _authHeaders()).timeout(
             const Duration(seconds: 10),
             onTimeout: () => throw Exception('Timeout'),
@@ -135,7 +135,7 @@ class BiddingService {
   /// User accepts a driver bid. Returns true on success.
   Future<bool> acceptBid(String rideId, String bidId) async {
     try {
-      final uri = Uri.parse('$_base/api/rides/$rideId/accept-bid');
+      final uri = Uri.parse('$_base/api/v1/rides/$rideId/accept-bid');
       final res = await http
           .post(
             uri,
@@ -152,7 +152,7 @@ class BiddingService {
   /// User sends a counter-offer to a specific driver's bid. Returns true on success.
   Future<bool> userCounterOffer(String rideId, String bidId, double counterPrice) async {
     try {
-      final uri = Uri.parse('$_base/api/rides/$rideId/user-counter');
+      final uri = Uri.parse('$_base/api/v1/rides/$rideId/user-counter');
       final res = await http
           .post(
             uri,
@@ -169,7 +169,7 @@ class BiddingService {
   /// Send chat message (user). Only allowed until ride completed.
   Future<bool> sendChatMessage(String rideId, String text) async {
     try {
-      final uri = Uri.parse('$_base/api/rides/$rideId/chat');
+      final uri = Uri.parse('$_base/api/v1/rides/$rideId/chat');
       final res = await http
           .post(
             uri,
@@ -195,7 +195,7 @@ class BiddingService {
       } else {
         params['radiusKm'] = radiusKm.toString();
       }
-      final uri = Uri.parse('$_base/api/drivers/nearby').replace(
+      final uri = Uri.parse('$_base/api/v1/drivers/nearby').replace(
         queryParameters: params,
       );
       final res = await http.get(uri, headers: await _authHeaders()).timeout(
@@ -214,7 +214,7 @@ class BiddingService {
   /// Cancel an active ride (pending or accepted). Returns true on success.
   Future<bool> cancelRide(String rideId) async {
     try {
-      final uri = Uri.parse('$_base/api/rides/$rideId/cancel');
+      final uri = Uri.parse('$_base/api/v1/rides/$rideId/cancel');
       final res = await http
           .post(uri, headers: await _authHeaders(json: true))
           .timeout(const Duration(seconds: 10), onTimeout: () => throw Exception('Timeout'));

@@ -26,7 +26,7 @@ class RideBidService {
   /// Fetches pending ride requests (for polling when driver is online).
   Future<List<IncomingRequest>> getRequests() async {
     try {
-      final uri = Uri.parse('$_base/api/drivers/requests');
+      final uri = Uri.parse('$_base/api/v1/drivers/requests');
       final res = await http.get(uri, headers: await _authHeaders()).timeout(
             const Duration(seconds: 10),
             onTimeout: () => throw Exception('Timeout'),
@@ -72,7 +72,7 @@ class RideBidService {
   /// Fetch ride details (messages, userPhone, etc.).
   Future<Map<String, dynamic>?> getRide(String rideId) async {
     try {
-      final uri = Uri.parse('$_base/api/rides/$rideId');
+      final uri = Uri.parse('$_base/api/v1/rides/$rideId');
       final res = await http.get(uri, headers: await _authHeaders()).timeout(
             const Duration(seconds: 10),
             onTimeout: () => throw Exception('Timeout'),
@@ -87,7 +87,7 @@ class RideBidService {
   /// Send chat message (driver). Only allowed until ride completed.
   Future<bool> sendChatMessage(String rideId, String text) async {
     try {
-      final uri = Uri.parse('$_base/api/rides/$rideId/chat');
+      final uri = Uri.parse('$_base/api/v1/rides/$rideId/chat');
       final res = await http.post(
         uri,
         headers: await _authHeaders(json: true),
@@ -118,7 +118,7 @@ class RideBidService {
       if (carModel != null && carModel.trim().isNotEmpty) body['carModel'] = carModel.trim();
       if (rating != null) body['rating'] = rating;
       final res = await http.post(
-        Uri.parse('$_base/api/rides/$rideId/bid'),
+        Uri.parse('$_base/api/v1/rides/$rideId/bid'),
         headers: await _authHeaders(json: true),
         body: json.encode(body),
       ).timeout(const Duration(seconds: 10), onTimeout: () => throw Exception('Timeout'));
@@ -140,7 +140,7 @@ class RideBidService {
       if (driverId != null && driverId.trim().isNotEmpty) body['driverId'] = driverId.trim();
       if (driverPhone != null && driverPhone.trim().isNotEmpty) body['driverPhone'] = driverPhone.trim();
       final res = await http.post(
-        Uri.parse('$_base/api/rides/$requestId/accept'),
+        Uri.parse('$_base/api/v1/rides/$requestId/accept'),
         headers: await _authHeaders(json: true),
         body: json.encode(body.isEmpty ? {} : body),
       );
@@ -165,7 +165,7 @@ class RideBidService {
       final body = <String, dynamic>{'counter_price': counterPriceSoles};
       if (driverPhone != null && driverPhone.trim().isNotEmpty) body['driverPhone'] = driverPhone.trim();
       final res = await http.post(
-        Uri.parse('$_base/api/rides/$requestId/counter'),
+        Uri.parse('$_base/api/v1/rides/$requestId/counter'),
         headers: await _authHeaders(json: true),
         body: json.encode(body),
       );
@@ -179,7 +179,7 @@ class RideBidService {
   Future<bool> declineBid(String requestId) async {
     try {
       final res = await http.post(
-        Uri.parse('$_base/api/rides/$requestId/decline'),
+        Uri.parse('$_base/api/v1/rides/$requestId/decline'),
         headers: await _authHeaders(json: true),
       );
       return res.statusCode >= 200 && res.statusCode < 300;
@@ -192,7 +192,7 @@ class RideBidService {
   Future<bool> driverArrived(String rideId) async {
     try {
       final res = await http.post(
-        Uri.parse('$_base/api/rides/$rideId/driver-arrived'),
+        Uri.parse('$_base/api/v1/rides/$rideId/driver-arrived'),
         headers: await _authHeaders(json: true),
       );
       return res.statusCode >= 200 && res.statusCode < 300;
@@ -205,7 +205,7 @@ class RideBidService {
   Future<bool> startRide(String rideId, String otp) async {
     try {
       final res = await http.post(
-        Uri.parse('$_base/api/rides/$rideId/start-ride'),
+        Uri.parse('$_base/api/v1/rides/$rideId/start-ride'),
         headers: await _authHeaders(json: true),
         body: json.encode({'otp': otp.trim()}),
       );
@@ -219,7 +219,7 @@ class RideBidService {
   Future<bool> completeRide(String rideId) async {
     try {
       final res = await http.post(
-        Uri.parse('$_base/api/rides/$rideId/complete'),
+        Uri.parse('$_base/api/v1/rides/$rideId/complete'),
         headers: await _authHeaders(json: true),
       );
       return res.statusCode >= 200 && res.statusCode < 300;
@@ -234,7 +234,7 @@ class RideBidService {
     try {
       final originStr = '${origin.latitude},${origin.longitude}';
       final destStr = '${destination.latitude},${destination.longitude}';
-      final uri = Uri.parse('$_base/api/directions').replace(
+      final uri = Uri.parse('$_base/api/v1/directions').replace(
         queryParameters: {'origin': originStr, 'destination': destStr},
       );
       final res = await http.get(uri, headers: await _authHeaders()).timeout(
@@ -261,7 +261,7 @@ class RideBidService {
   Future<bool> updateDriverLocation(String rideId, double lat, double lng) async {
     try {
       final res = await http.post(
-        Uri.parse('$_base/api/rides/$rideId/driver-location'),
+        Uri.parse('$_base/api/v1/rides/$rideId/driver-location'),
         headers: await _authHeaders(json: true),
         body: json.encode({'lat': lat, 'lng': lng}),
       );
@@ -285,7 +285,7 @@ class RideBidService {
       if (driverId != null && driverId.isNotEmpty) body['driverId'] = driverId;
       if (phone != null && phone.trim().isNotEmpty) body['phone'] = phone.trim();
       final res = await http.post(
-        Uri.parse('$_base/api/drivers/location'),
+        Uri.parse('$_base/api/v1/drivers/location'),
         headers: await _authHeaders(json: true),
         body: json.encode(body),
       ).timeout(const Duration(seconds: 5), onTimeout: () => throw Exception('Timeout'));
@@ -312,7 +312,7 @@ class RideBidService {
   /// Resolve driverId from phone (no creation, read-only).
   Future<String?> resolveDriverIdByPhone(String phone) async {
     try {
-      final uri = Uri.parse('$_base/api/drivers/resolve-id').replace(queryParameters: {'phone': phone.trim()});
+      final uri = Uri.parse('$_base/api/v1/drivers/resolve-id').replace(queryParameters: {'phone': phone.trim()});
       final res = await http.get(uri, headers: await _authHeaders()).timeout(const Duration(seconds: 5), onTimeout: () => throw Exception('Timeout'));
       if (res.statusCode != 200) return null;
       final data = json.decode(res.body) as Map<String, dynamic>?;
@@ -328,7 +328,7 @@ class RideBidService {
   Future<Map<String, dynamic>?> getVerificationStatus(String? driverId) async {
     if (driverId == null || driverId.isEmpty) return null;
     try {
-      final uri = Uri.parse('$_base/api/drivers/verification-status').replace(queryParameters: {'driverId': driverId});
+      final uri = Uri.parse('$_base/api/v1/drivers/verification-status').replace(queryParameters: {'driverId': driverId});
       final res = await http.get(uri, headers: await _authHeaders()).timeout(const Duration(seconds: 5), onTimeout: () => throw Exception('Timeout'));
       if (res.statusCode != 200) return null;
       final data = json.decode(res.body) as Map<String, dynamic>?;
@@ -341,7 +341,7 @@ class RideBidService {
   /// GET verification status by phone number. Returns {success: bool, message: string, ...rest}
   Future<Map<String, dynamic>> getVerificationStatusByPhone(String phone) async {
     try {
-      final uri = Uri.parse('$_base/api/drivers/verification-status').replace(queryParameters: {'phone': phone.trim()});
+      final uri = Uri.parse('$_base/api/v1/drivers/verification-status').replace(queryParameters: {'phone': phone.trim()});
       final res = await http.get(uri, headers: await _authHeaders()).timeout(const Duration(seconds: 5), onTimeout: () => throw Exception('Timeout'));
       if (res.statusCode != 200) {
         return {'success': false, 'message': 'Server returned ${res.statusCode}'};
@@ -366,7 +366,7 @@ class RideBidService {
     try {
       final driverId = await _resolveDriverId();
       if (driverId == null || driverId.isEmpty) return [];
-      final uri = Uri.parse('$_base/api/rides/drivers/$driverId/bids');
+      final uri = Uri.parse('$_base/api/v1/rides/drivers/$driverId/bids');
       final res = await http.get(uri, headers: await _authHeaders()).timeout(
             const Duration(seconds: 10),
             onTimeout: () => throw Exception('Timeout'),
@@ -402,7 +402,7 @@ class RideBidService {
     if (driverId == null || driverId.isEmpty) return true;
     try {
       final res = await http.post(
-        Uri.parse('$_base/api/drivers/offline'),
+        Uri.parse('$_base/api/v1/drivers/offline'),
         headers: await _authHeaders(json: true),
         body: json.encode({'driverId': driverId}),
       ).timeout(const Duration(seconds: 3), onTimeout: () => throw Exception('Timeout'));

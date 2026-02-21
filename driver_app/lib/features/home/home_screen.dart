@@ -464,7 +464,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         return;
       }
       final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
+        desiredAccuracy: LocationAccuracy.medium,
+        timeLimit: const Duration(seconds: 5),
       );
       if (!mounted) return;
       await prefs.setDouble(_kDriverLastLat, pos.latitude);
@@ -815,8 +816,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }
         return;
       }
+      // Use medium accuracy first (fast ~1s), then refine with high in background
       final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
+        desiredAccuracy: LocationAccuracy.medium,
+        timeLimit: const Duration(seconds: 5),
       );
       if (!mounted) return;
       await prefs.setDouble(_kDriverLastLat, pos.latitude);
@@ -833,6 +836,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
       _centerOnUser();
       _showLocationAlwaysOnPopupIfNeeded();
+      // Background: refine with high accuracy after map is already centered
+      Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high, timeLimit: const Duration(seconds: 15)).then((refined) {
+        if (!mounted) return;
+        setState(() {
+          _userPosition = refined;
+          _driverMarkerPosition = LatLng(refined.latitude, refined.longitude);
+        });
+      }).catchError((_) {});
     } catch (_) {
       if (mounted) {
         final prefs = await SharedPreferences.getInstance();

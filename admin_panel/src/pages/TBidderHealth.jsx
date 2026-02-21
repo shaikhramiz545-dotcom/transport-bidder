@@ -11,7 +11,7 @@ import "../App.css"
 const REFRESH_INTERVAL_MS = 15000
 
 function Bullet({ status }) {
-  const colors = { ok: "#22c55e", down: "#ef4444", warn: "#f59e0b", nc: "#6b7280" }
+  const colors = { ok: "#00ff9d", down: "#ff4e53", warn: "#ffaa00", nc: "#6b7280" }
   const color = colors[status] || colors.nc
   return (
     <span style={{ position:"relative",display:"inline-flex",alignItems:"center",justifyContent:"center",width:14,height:14,flexShrink:0 }}>
@@ -26,23 +26,23 @@ function ApiRow({ label, endpoint, ok, notConfigured, traffic }) {
   const count = traffic?.count ?? 0
   const pct = parseFloat(traffic?.percent ?? "0")
   const barW = Math.min(pct * 3, 100)
-  const colors = { ok:"#22c55e", down:"#ef4444", nc:"#6b7280", warn:"#f59e0b" }
+  const colors = { ok:"#00ff9d", down:"#ff4e53", nc:"#6b7280", warn:"#ffaa00" }
   const color = colors[status]
   return (
-    <div style={{ display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:"1px solid #1f2937" }}>
+    <div style={{ display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:"1px solid #1f2937",transition:"background 0.2s",background:status==="down"?"#2d1619":"transparent" }}>
       <Bullet status={status} />
       <div style={{ flex:1,minWidth:0 }}>
         <div style={{ display:"flex",alignItems:"center",gap:8,flexWrap:"wrap" }}>
-          <span style={{ fontSize:13,fontWeight:500,color:"#e5e7eb" }}>{label}</span>
-          {endpoint && <code style={{ fontSize:10,color:"#4b5563",background:"#1f2937",borderRadius:3,padding:"1px 5px" }}>{endpoint}</code>}
+          <span style={{ fontSize:14,fontWeight:500,color:"#e5e7eb" }}>{label}</span>
+          {endpoint && <code style={{ fontSize:11,color:"#4b5563",background:"#1f2937",borderRadius:4,padding:"2px 6px" }}>{endpoint}</code>}
         </div>
-        <div style={{ marginTop:4,height:3,borderRadius:2,background:"#1f2937",overflow:"hidden" }}>
+        <div style={{ marginTop:5,height:4,borderRadius:2,background:"#1f2937",overflow:"hidden" }}>
           <div style={{ height:"100%",width:barW+"%",background:color,borderRadius:2,transition:"width 0.5s" }} />
         </div>
       </div>
       <div style={{ textAlign:"right",minWidth:80,flexShrink:0 }}>
-        <span style={{ fontSize:12,fontWeight:700,color }}>{notConfigured?"N/A":ok?"UP":"DOWN"}</span>
-        <div style={{ fontSize:11,color:"#6b7280" }}>{count} req {pct.toFixed(1)}%</div>
+        <span style={{ fontSize:13,fontWeight:700,color }}>{notConfigured?"N/A":ok?"UP":"DOWN"}</span>
+        <div style={{ fontSize:12,color:"#6b7280" }}>{count} req {pct.toFixed(1)}%</div>
       </div>
     </div>
   )
@@ -50,63 +50,63 @@ function ApiRow({ label, endpoint, ok, notConfigured, traffic }) {
 
 function ServiceCard({ icon: Icon, title, ok, configured=true, msg }) {
   const status = !configured ? "nc" : ok ? "ok" : "down"
-  const colors = { ok:"#22c55e", down:"#ef4444", nc:"#6b7280" }
+  const colors = { ok:"#00ff9d", down:"#ff4e53", nc:"#6b7280" }
   const color = colors[status]
   return (
-    <div style={{ background:"#111827",border:"1px solid "+color+"44",borderRadius:12,padding:"14px 16px",display:"flex",alignItems:"center",gap:14 }}>
-      <div style={{ width:40,height:40,borderRadius:10,background:color+"18",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
-        <Icon size={20} color={color} />
+    <div style={{ background:"linear-gradient(145deg, #1a202c, #16202e)",border:"1px solid "+color+"33",borderRadius:14,padding:"16px 18px",display:"flex",alignItems:"center",gap:16,boxShadow:"0 4px 6px rgba(0,0,0,0.3), inset 0 0 10px rgba(0,255,157,0.1)" }}>
+      <div style={{ width:42,height:42,borderRadius:12,background:color+"22",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:"0 0 8px "+color+"44" }}>
+        <Icon size={22} color={color} />
       </div>
       <div style={{ flex:1,minWidth:0 }}>
-        <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+        <div style={{ display:"flex",alignItems:"center",gap:10 }}>
           <Bullet status={status} />
-          <span style={{ fontSize:14,fontWeight:600,color:"#f3f4f6" }}>{title}</span>
+          <span style={{ fontSize:15,fontWeight:600,color:"#f3f4f6" }}>{title}</span>
         </div>
-        {msg && <span style={{ fontSize:11,color:"#6b7280",display:"block",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{msg}</span>}
+        {msg && <span style={{ fontSize:12,color:"#9ca3af",display:"block",marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{msg}</span>}
       </div>
-      <span style={{ fontSize:13,fontWeight:700,color,flexShrink:0 }}>{!configured?"N/A":ok?"OK":"DOWN"}</span>
+      <span style={{ fontSize:14,fontWeight:700,color,flexShrink:0 }}>{!configured?"N/A":ok?"OK":"DOWN"}</span>
     </div>
   )
 }
 
 function Section({ icon: Icon, title, color="#f97316", badge, children }) {
   return (
-    <div style={{ background:"#0f172a",border:"1px solid #1e293b",borderRadius:14,overflow:"hidden",marginBottom:20 }}>
-      <div style={{ display:"flex",alignItems:"center",gap:10,padding:"13px 18px",borderBottom:"1px solid #1e293b",background:"#111827" }}>
-        <Icon size={17} color={color} />
-        <span style={{ fontWeight:700,fontSize:14,color:"#f3f4f6",flex:1 }}>{title}</span>
-        {badge && <span style={{ fontSize:11,background:"#1f2937",color:"#9ca3af",borderRadius:12,padding:"2px 10px" }}>{badge}</span>}
+    <div style={{ background:"#0f172a",border:"1px solid #1e293b",borderRadius:16,overflow:"hidden",marginBottom:24,boxShadow:"0 4px 10px rgba(0,0,0,0.4)" }}>
+      <div style={{ display:"flex",alignItems:"center",gap:12,padding:"16px 20px",borderBottom:"1px solid #1e293b",background:"linear-gradient(to right, #111827, #141925)" }}>
+        <Icon size={18} color={color} />
+        <span style={{ fontWeight:700,fontSize:15,color:"#f3f4f6",flex:1 }}>{title}</span>
+        {badge && <span style={{ fontSize:12,background:"#1f2937",color:"#9ca3af",borderRadius:14,padding:"3px 12px" }}>{badge}</span>}
       </div>
-      <div style={{ padding:"4px 18px 12px" }}>{children}</div>
+      <div style={{ padding:"6px 20px 16px" }}>{children}</div>
     </div>
   )
 }
 
 function StatTile({ icon: Icon, value, label, color="#f97316" }) {
   return (
-    <div style={{ background:"#111827",border:"1px solid #1e293b",borderRadius:12,padding:"16px",display:"flex",flexDirection:"column",alignItems:"center",gap:6,textAlign:"center" }}>
-      <Icon size={22} color={color} />
-      <span style={{ fontSize:22,fontWeight:700,color:"#f3f4f6" }}>{value}</span>
-      <span style={{ fontSize:11,color:"#6b7280" }}>{label}</span>
+    <div style={{ background:"linear-gradient(145deg, #1a202c, #16202e)",border:"1px solid #1e293b",borderRadius:14,padding:"18px",display:"flex",flexDirection:"column",alignItems:"center",gap:8,textAlign:"center",boxShadow:"0 3px 5px rgba(0,0,0,0.3)" }}>
+      <Icon size={24} color={color} />
+      <span style={{ fontSize:24,fontWeight:700,color:"#f3f4f6" }}>{value}</span>
+      <span style={{ fontSize:12,color:"#9ca3af" }}>{label}</span>
     </div>
   )
 }
 
 function RestartModal({ onConfirm, onCancel, restarting }) {
   return (
-    <div style={{ position:"fixed",inset:0,background:"#000000cc",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16 }}>
-      <div style={{ background:"#1f2937",borderRadius:16,padding:32,maxWidth:420,width:"100%",border:"1px solid #374151" }}>
-        <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:14 }}>
-          <Power size={26} color="#ef4444" />
-          <h2 style={{ margin:0,color:"#f3f4f6",fontSize:18 }}>Restart Backend?</h2>
+    <div style={{ position:"fixed",inset:0,background:"#000000dd",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16 }}>
+      <div style={{ background:"linear-gradient(to bottom, #1f2937, #18212e)",borderRadius:18,padding:36,maxWidth:440,width:"100%",border:"1px solid #374151",boxShadow:"0 10px 30px rgba(0,0,0,0.5)" }}>
+        <div style={{ display:"flex",alignItems:"center",gap:14,marginBottom:16 }}>
+          <Power size={28} color="#ff4e53" />
+          <h2 style={{ margin:0,color:"#f3f4f6",fontSize:20 }}>Restart Backend?</h2>
         </div>
-        <p style={{ color:"#9ca3af",fontSize:14,margin:"0 0 24px",lineHeight:1.7 }}>
+        <p style={{ color:"#a0aec0",fontSize:15,margin:"0 0 28px",lineHeight:1.7 }}>
           This will immediately restart the backend on Elastic Beanstalk. The server will be unavailable for ~10 seconds. All active socket connections will drop temporarily.
         </p>
-        <div style={{ display:"flex",gap:12,justifyContent:"flex-end" }}>
-          <button onClick={onCancel} disabled={restarting} style={{ padding:"10px 20px",borderRadius:8,border:"1px solid #374151",background:"transparent",color:"#9ca3af",cursor:"pointer",fontSize:14 }}>Cancel</button>
-          <button onClick={onConfirm} disabled={restarting} style={{ padding:"10px 20px",borderRadius:8,border:"none",background:"#dc2626",color:"#fff",cursor:restarting?"not-allowed":"pointer",fontSize:14,fontWeight:600,display:"flex",alignItems:"center",gap:8,opacity:restarting?0.7:1 }}>
-            {restarting ? <><Loader2 size={16} className="spin" /> Restarting...</> : <><Power size={15}/> Yes, Restart Now</>}
+        <div style={{ display:"flex",gap:14,justifyContent:"flex-end" }}>
+          <button onClick={onCancel} disabled={restarting} style={{ padding:"12px 24px",borderRadius:10,border:"1px solid #374151",background:"transparent",color:"#9ca3af",cursor:"pointer",fontSize:15,transition:"all 0.2s" }}>Cancel</button>
+          <button onClick={onConfirm} disabled={restarting} style={{ padding:"12px 24px",borderRadius:10,border:"none",background:"#ff4e53",color:"#fff",cursor:restarting?"not-allowed":"pointer",fontSize:15,fontWeight:600,display:"flex",alignItems:"center",gap:10,opacity:restarting?0.7:1,transition:"all 0.2s" }}>
+            {restarting ? <><Loader2 size={18} className="spin" /> Restarting...</> : <><Power size={16}/> Yes, Restart Now</>}
           </button>
         </div>
       </div>
@@ -125,137 +125,120 @@ function TBidderHealth() {
   const [restartMsg, setRestartMsg] = useState("")
 
   const fetchHealth = useCallback(async (isManual=false) => {
-    if (isManual) setRefreshing(true); else if (!data) setLoading(true)
+    setLoading(true)
     setError("")
+    if (isManual) setRefreshing(true)
     try {
-      const { data: res } = await api.get("/admin/health-status")
-      setData(res); setSecondsAgo(0)
+      const res = await api.getHealthStatus()
+      setData(res.data)
     } catch (err) {
-      setError(err.response?.data?.error || err.message || "Backend not reachable")
+      setError(err.message || "Failed to fetch health status")
     } finally {
-      setLoading(false); setRefreshing(false)
+      setLoading(false)
+      if (isManual) setTimeout(() => setRefreshing(false), 500)
+      setSecondsAgo(0)
     }
-  }, [data])
-
-  useEffect(() => { fetchHealth() }, [])
+  }, [])
 
   useEffect(() => {
-    if (loading || error) return
-    const t = setInterval(() => fetchHealth(), REFRESH_INTERVAL_MS)
-    return () => clearInterval(t)
-  }, [loading, error])
+    fetchHealth(true)
+    const interval = setInterval(() => {
+      fetchHealth(false)
+      if (data?.timestamp) {
+        const ts = new Date(data.timestamp).getTime()
+        const now = Date.now()
+        setSecondsAgo(Math.round((now - ts) / 1000))
+      }
+    }, REFRESH_INTERVAL_MS)
+    return () => clearInterval(interval)
+  }, [fetchHealth, data?.timestamp])
 
-  useEffect(() => {
-    if (!data || error) return
-    const tick = setInterval(() => setSecondsAgo(s => Math.min(s+1, REFRESH_INTERVAL_MS/1000)), 1000)
-    return () => clearInterval(tick)
-  }, [data, error])
-
-  const handleRestart = async () => {
+  const doRestart = async () => {
     setRestarting(true)
+    setRestartMsg("")
     try {
-      const { data: r } = await api.post("/admin/restart")
-      setRestartMsg(r.message || "Restarting...")
-      setShowRestart(false)
-      setTimeout(() => { setRestartMsg(""); fetchHealth(true) }, 12000)
+      await api.restartBackend()
+      setRestartMsg("Backend restarted successfully. Wait 10-15 seconds for full recovery.")
+      setTimeout(() => {
+        setShowRestart(false)
+        setRestarting(false)
+        fetchHealth(true)
+      }, 5000)
     } catch (err) {
-      setRestartMsg("Restart failed: " + (err.response?.data?.message || err.message))
-      setShowRestart(false)
-    } finally {
-      setRestarting(false)
+      setRestartMsg("Failed to restart: " + err.message)
+      setTimeout(() => setRestarting(false), 1000)
     }
   }
 
-  const d = data
-  const allOk = d?.ok ?? false
-  const fs = d?.services?.firestore
-  const fsNC = fs && fs.configured === false
-  const emailData = d?.services?.msg91
-  const emailNC = emailData && emailData.configured === false
-
-  const allApiValues = d ? Object.values(d.apis || {}).flatMap(g => typeof g === "object" ? Object.values(g) : [g]) : []
-  const totalApis = allApiValues.length
-  const okApis = allApiValues.filter(Boolean).length
-
+  const d = data || {}
   return (
     <>
-      {showRestart && <RestartModal onConfirm={handleRestart} onCancel={() => setShowRestart(false)} restarting={restarting} />}
-      <style>{`@keyframes health-ping{0%{transform:scale(1);opacity:0.4}70%{transform:scale(2.2);opacity:0}100%{transform:scale(2.2);opacity:0}}`}</style>
-
-      <header className="dashboard-header">
-        <h1 className="dashboard-header-title">
-          <Activity size={26} style={{ marginRight:"0.5rem",verticalAlign:"middle" }} />
-          TBidder Health
-          <span className="health-live-badge"><span className="health-live-dot" />LIVE</span>
-        </h1>
-        <div className="dashboard-header-actions">
-          {data && !error && <span className="health-updated-ago">Updated {secondsAgo}s ago</span>}
-          <button type="button" className="dashboard-btn" onClick={() => fetchHealth(true)} disabled={refreshing}>
-            {refreshing ? <Loader2 size={17} className="spin" /> : <RefreshCw size={17} />}
-            <span>{refreshing?"Checking...":"Refresh"}</span>
-          </button>
-          <button type="button" onClick={() => setShowRestart(true)}
-            style={{ display:"flex",alignItems:"center",gap:6,padding:"8px 14px",borderRadius:8,border:"1px solid #ef4444",background:"transparent",color:"#ef4444",cursor:"pointer",fontSize:13,fontWeight:600 }}>
-            <Power size={15}/> Restart Backend
-          </button>
-        </div>
-      </header>
-
-      {restartMsg && (
-        <div style={{ margin:"12px 24px 0",padding:"12px 16px",borderRadius:10,background:"#1f2937",border:"1px solid #374151",color:"#f3f4f6",fontSize:13 }}>
-          {restartMsg}
-        </div>
-      )}
-
-      <div className="dashboard-content">
-        {loading && !data && (
-          <div className="dashboard-loading"><Loader2 size={32} className="spin" /><span>Loading health status...</span></div>
-        )}
-        {error && (
-          <div className="health-error-banner">
-            <div style={{ fontSize:22 }}>X</div>
-            <div><strong>Backend not reachable</strong><p>{error}</p></div>
+      <style>{`
+        @keyframes health-ping {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.5); }
+        }
+        .spin { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      `}</style>
+      {showRestart && <RestartModal onConfirm={doRestart} onCancel={() => setShowRestart(false)} restarting={restarting} />}
+      <div style={{ background:"linear-gradient(to bottom, #0f172a, #1a202c)",minHeight:"100vh",color:"#fff",padding:24 }}>
+        <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:30,gap:16,flexWrap:"wrap" }}>
+          <div>
+            <h1 style={{ fontSize:28,margin:0,color:"#f3f4f6",display:"flex",alignItems:"center",gap:12 }}><Globe size={28} color="#f97316" /> TBidder System Health</h1>
+            <span style={{ fontSize:14,color:"#9ca3af",display:"block",marginTop:6 }}>
+              {loading ? "Loading..." : data ? `Updated ${secondsAgo}s ago` : error || "Not loaded"}
+            </span>
           </div>
-        )}
-
-        {data && !error && (
+          <div style={{ display:"flex",gap:12 }}>
+            <button onClick={() => fetchHealth(true)} disabled={refreshing} style={{ background:"#f97316",border:"none",color:"#fff",padding:"10px 20px",borderRadius:8,cursor:refreshing?"not-allowed":"pointer",fontSize:14,fontWeight:500,display:"flex",alignItems:"center",gap:8,opacity:refreshing?0.7:1,transition:"all 0.2s" }}>
+              {refreshing ? <Loader2 size={16} className="spin" /> : <RefreshCw size={16} />} Refresh
+            </button>
+            <button onClick={() => setShowRestart(true)} style={{ background:"#dc2626",border:"none",color:"#fff",padding:"10px 20px",borderRadius:8,cursor:"pointer",fontSize:14,fontWeight:500,display:"flex",alignItems:"center",gap:8,transition:"all 0.2s" }}>
+              <Power size={16} /> Restart Backend
+            </button>
+          </div>
+        </div>
+        {restartMsg && <div style={{ padding:16,background:"#2d1619",borderRadius:10,marginBottom:20,color:"#fff",display:"flex",alignItems:"center",gap:12 }}><AlertTriangle size={20} color="#ff4e53" /> {restartMsg}</div>}
+        {loading ? (
+          <div style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:300,gap:16 }}>
+            <Loader2 size={32} color="#f97316" className="spin" />
+            <span style={{ color:"#9ca3af" }}>Loading system health data...</span>
+          </div>
+        ) : error ? (
+          <div style={{ padding:24,background:"#2d1619",borderRadius:12,marginBottom:20,color:"#f87171",textAlign:"center" }}>{error}</div>
+        ) : (
           <>
-            <div style={{ display:"flex",alignItems:"center",gap:16,flexWrap:"wrap",padding:"12px 18px",borderRadius:12,background:allOk?"#052e16":"#1c0a0a",border:"1px solid "+(allOk?"#166534":"#7f1d1d"),marginBottom:20 }}>
-              <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                <Bullet status={allOk?"ok":"down"} />
-                <span style={{ fontWeight:700,fontSize:15,color:allOk?"#4ade80":"#f87171" }}>
-                  {allOk?"All systems operational":"Some services degraded"}
-                </span>
-              </div>
-              <span style={{ fontSize:12,color:"#6b7280",marginLeft:"auto" }}>
-                {okApis}/{totalApis} APIs up &middot; {new Date(d.lastChecked).toLocaleTimeString()} &middot; Auto-refresh 15s &middot; Traffic last {d.trafficWindowSec||60}s
-              </span>
-            </div>
-
-            <Section icon={Server} title="Infrastructure" color="#6366f1">
-              <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:12,paddingTop:12 }}>
-                <ServiceCard icon={Server} title="Backend API" ok={d.services?.backend} msg="Express + Node.js" />
-                <ServiceCard icon={Server} title="PostgreSQL" ok={d.services?.database} msg="Primary database" />
-                <ServiceCard icon={Server} title="Firestore" ok={fsNC?null:fs?.ok} configured={!fsNC} msg={fs?.msg || (fsNC?"Not configured":"Realtime DB")} />
-                <ServiceCard icon={Mail} title="Email / AWS SES" ok={emailNC?null:emailData?.ok} configured={!emailNC} msg={emailData?.msg || (emailNC?"Not configured":"")} />
+            <Section icon={Server} title="Core Services" color="#f97316">
+              <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:16,paddingTop:12 }}>
+                <ServiceCard icon={Server} title="Backend API" ok={d.services?.backend} />
+                <ServiceCard icon={Zap} title="Database (PostgreSQL)" ok={d.ok} msg={d.db} />
+                <ServiceCard icon={Mail} title="Email Service (AWS SES)" ok={d.email?.ok} configured={d.email?.provider !== "not configured"} msg={d.email?.msg} />
+                <ServiceCard icon={Globe} title="Google Maps API" ok={d.googleMaps?.ok} msg={d.googleMaps?.msg} />
               </div>
             </Section>
 
-            <Section icon={Activity} title="Live Metrics (last 60s)" color="#22c55e">
-              <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(170px,1fr))",gap:12,paddingTop:12 }}>
-                <div className="health-live-metric-card"><Radio size={20}/><span className="health-live-metric-value">{d.live?.socketio?.connections??0}</span><span className="health-live-metric-label">Socket.io connections</span></div>
-                <div className="health-live-metric-card"><Zap size={20}/><span className="health-live-metric-value">{d.live?.metrics?.avgResponseTimeMs??0}ms</span><span className="health-live-metric-label">Avg response time</span></div>
-                <div className="health-live-metric-card"><AlertTriangle size={20}/><span className="health-live-metric-value">{d.live?.metrics?.errorRatePercent??0}%</span><span className="health-live-metric-label">Error rate</span></div>
-                <div className="health-live-metric-card"><Server size={20}/><span className="health-live-metric-value">{d.live?.dbConnections??0}</span><span className="health-live-metric-label">DB connections</span></div>
+            <Section icon={Radio} title="API Traffic (last 24h)" color="#3b82f6" badge="live">
+              <div style={{ display:"flex",flexWrap:"wrap",gap:20,paddingTop:12 }}>
+                <div style={{ flex:1,minWidth:200 }}>
+                  <h3 style={{ fontSize:14,fontWeight:600,color:"#f3f4f6",margin:"0 0 12px" }}>User App</h3>
+                  <ApiRow label="All APIs" ok={d.traffic?.userApp?.ok} traffic={d.traffic?.userApp} />
+                  <ApiRow label="Rides" endpoint="/api/v1/rides" ok={d.apis?.userApp?.rides} traffic={d.traffic?.userApp?.rides} />
+                  <ApiRow label="Google Places" endpoint="/api/v1/places/*" ok={d.services?.places} notConfigured={d.services?.placesMsg==="No API key"} traffic={d.traffic?.userApp?.places} />
+                  <ApiRow label="Place Details" endpoint="/api/v1/places/details" ok={d.apis?.userApp?.placesDetails} traffic={d.traffic?.userApp?.placesDetails} />
+                  <ApiRow label="Google Directions" endpoint="/api/v1/directions" ok={d.services?.directions} notConfigured={d.services?.directionsMsg==="No API key"} traffic={d.traffic?.userApp?.directions} />
+                  <ApiRow label="Payment Gateway (dLocal)" endpoint="dlocal.com" ok={d.services?.paymentGateway?.ok} notConfigured={!d.services?.paymentGateway?.configured} />
+                  <ApiRow label="SMTP Email" endpoint="smtp" ok={d.services?.smtp?.ok} notConfigured={d.services?.smtp?.msg==="SMTP_HOST not set"} />
+                </div>
+                <div style={{ flex:1,minWidth:200 }}>
+                  <h3 style={{ fontSize:14,fontWeight:600,color:"#f3f4f6",margin:"0 0 12px" }}>Driver App</h3>
+                  <ApiRow label="All APIs" ok={d.traffic?.driverApp?.ok} traffic={d.traffic?.driverApp} />
+                  <ApiRow label="Rides" endpoint="/api/v1/rides" ok={d.apis?.driverApp?.rides} traffic={d.traffic?.driverApp?.rides} />
+                  <ApiRow label="Google Places" endpoint="/api/v1/places/*" ok={d.services?.places} notConfigured={d.services?.placesMsg==="No API key"} traffic={d.traffic?.driverApp?.places} />
+                  <ApiRow label="Place Details" endpoint="/api/v1/places/details" ok={d.apis?.driverApp?.placesDetails} traffic={d.traffic?.driverApp?.placesDetails} />
+                  <ApiRow label="Google Directions" endpoint="/api/v1/directions" ok={d.services?.directions} notConfigured={d.services?.directionsMsg==="No API key"} traffic={d.traffic?.driverApp?.directions} />
+                </div>
               </div>
-            </Section>
-
-            <Section icon={Globe} title="External APIs" color="#3b82f6">
-              <ApiRow label="Google Places (autocomplete)" endpoint="/api/v1/places/autocomplete" ok={d.services?.places} notConfigured={d.services?.placesMsg==="No API key"} traffic={d.traffic?.userApp?.places} />
-              <ApiRow label="Google Places (details)" endpoint="/api/v1/places/details" ok={d.apis?.userApp?.placesDetails} traffic={d.traffic?.userApp?.placesDetails} />
-              <ApiRow label="Google Directions" endpoint="/api/v1/directions" ok={d.services?.directions} notConfigured={d.services?.directionsMsg==="No API key"} traffic={d.traffic?.userApp?.directions} />
-              <ApiRow label="Payment Gateway (dLocal)" endpoint="dlocal.com" ok={d.services?.paymentGateway?.ok} notConfigured={!d.services?.paymentGateway?.configured} />
-              <ApiRow label="SMTP Email" endpoint="smtp" ok={d.services?.smtp?.ok} notConfigured={d.services?.smtp?.msg==="SMTP_HOST not set"} />
             </Section>
 
             <Section icon={Smartphone} title="Auth APIs (User + Driver shared)" color="#8b5cf6" badge="shared">
@@ -301,20 +284,20 @@ function TBidderHealth() {
               <ApiRow label="File Uploads" endpoint="/uploads/" ok={d.apis?.uploads} traffic={d.traffic?.uploads} />
             </Section>
 
-            <Section icon={Activity} title="Business Health (Live)" color="#22c55e">
-              <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:12,paddingTop:12 }}>
-                <StatTile icon={Users} value={d.stats?.onlineDrivers??0} label="Online drivers" color="#22c55e" />
-                <StatTile icon={ShieldCheck} value={d.stats?.pendingVerifications??0} label="Pending verifications" color="#f59e0b" />
+            <Section icon={Activity} title="Business Health (Live)" color="#00ff9d">
+              <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:16,paddingTop:14 }}>
+                <StatTile icon={Users} value={d.stats?.onlineDrivers??0} label="Online drivers" color="#00ff9d" />
+                <StatTile icon={ShieldCheck} value={d.stats?.pendingVerifications??0} label="Pending verifications" color="#ffaa00" />
                 <StatTile icon={Clock} value={d.stats?.pendingRides??0} label="Pending rides" color="#3b82f6" />
                 <StatTile icon={Car} value={d.stats?.activeRides??0} label="Active rides" color="#06b6d4" />
                 <StatTile icon={Hash} value={d.stats?.totalRides??0} label="Total rides" color="#8b5cf6" />
                 <StatTile icon={Users} value={d.stats?.totalUsers??0} label="Total users" color="#ec4899" />
                 <StatTile icon={Truck} value={d.stats?.totalDrivers??0} label="Total drivers" color="#f97316" />
-                <StatTile icon={Wallet} value={d.stats?.pendingWalletRecharge??0} label="Pending recharge" color="#f59e0b" />
-                <StatTile icon={Banknote} value={d.stats?.pendingPayouts??0} label="Pending payouts" color="#ef4444" />
+                <StatTile icon={Wallet} value={d.stats?.pendingWalletRecharge??0} label="Pending recharge" color="#ffaa00" />
+                <StatTile icon={Banknote} value={d.stats?.pendingPayouts??0} label="Pending payouts" color="#ff4e53" />
                 <StatTile icon={CalendarCheck} value={d.stats?.pendingTourBookings??0} label="Tour bookings" color="#14b8a6" />
-                <StatTile icon={Car} value={d.stats?.completedRidesToday??0} label="Rides today" color="#22c55e" />
-                <StatTile icon={Banknote} value={"S/"+(d.stats?.totalRevenue??0).toFixed(0)} label="Total revenue" color="#22c55e" />
+                <StatTile icon={Car} value={d.stats?.completedRidesToday??0} label="Rides today" color="#00ff9d" />
+                <StatTile icon={Banknote} value={"S/"+(d.stats?.totalRevenue??0).toFixed(0)} label="Total revenue" color="#00ff9d" />
               </div>
             </Section>
           </>

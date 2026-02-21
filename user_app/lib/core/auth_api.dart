@@ -10,7 +10,7 @@ class AuthApi {
 
   final String _base;
 
-  String _url(String path) => '$_base/api/auth$path';
+  String _url(String path) => '$_base/api/v1/auth$path';
 
   /// Extract error message from backend response — handles all formats:
   /// { message: '...' }, { error: { message: '...' } }, { error: '...' }

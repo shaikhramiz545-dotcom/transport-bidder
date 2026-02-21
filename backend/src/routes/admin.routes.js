@@ -243,15 +243,15 @@ router.get('/health-status', authMiddleware, async (req, res) => {
           auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
         });
         await transporter.verify();
-        result.services.msg91 = { configured: true, ok: true, msg: `AWS SES (${sesRegion}) + SMTP OK (${smtpHost})` };
+        result.services.email = { configured: true, ok: true, msg: `AWS SES (${sesRegion}) + SMTP OK (${smtpHost})` };
       } catch (smtpErr) {
-        result.services.msg91 = { configured: sesConfigured, ok: sesConfigured, msg: sesConfigured ? `AWS SES (${sesRegion}) active; SMTP fallback failed: ${smtpErr.message}` : `SMTP failed: ${smtpErr.message}` };
+        result.services.email = { configured: sesConfigured, ok: sesConfigured, msg: sesConfigured ? `AWS SES (${sesRegion}) active; SMTP fallback failed: ${smtpErr.message}` : `SMTP failed: ${smtpErr.message}` };
       }
     } else {
-      result.services.msg91 = { configured: sesConfigured, ok: sesConfigured, msg: sesConfigured ? `AWS SES (${sesRegion}) configured` : 'No email provider configured' };
+      result.services.email = { configured: sesConfigured, ok: sesConfigured, msg: sesConfigured ? `AWS SES (${sesRegion}) configured` : 'No email provider configured' };
     }
   } catch (e) {
-    result.services.msg91 = { configured: false, ok: false, msg: e.message || 'Email config error' };
+    result.services.email = { configured: false, ok: false, msg: e.message || 'Email config error' };
   }
 
   // External: Places & Directions
@@ -1094,80 +1094,53 @@ router.get('/drivers', authMiddleware, async (_req, res) => {
             vehiclePlate: fsDriver.vehiclePlate || null,
             driverName: fsDriver.driverName || null,
             email: fsDriver.email || null,
-            city: fsDriver.city || null,
-            dni: fsDriver.dni || null,
-            phone: fsDriver.phone || null,
-            license: fsDriver.license || null,
-            photoUrl: fsDriver.photoUrl || null,
             blockReason: fsDriver.blockReason || null,
+            adminNotes: null,
+            customRatePerKm: fsDriver.customRatePerKm ?? null,
+            hasAntecedentesPoliciales: fsDriver.hasAntecedentesPoliciales ?? null,
+            hasAntecedentesPenales: fsDriver.hasAntecedentesPenales ?? null,
+            city: fsDriver.city || null,
+            phone: fsDriver.phone || null,
+            dni: fsDriver.dni || null,
+            license: fsDriver.license || null,
+            licenseNumber: fsDriver.license || null,
+
+            vehicleBrand: fsDriver.vehicleBrand || null,
+            vehicleModel: fsDriver.vehicleModel || null,
+            vehicleColor: fsDriver.vehicleColor || null,
+            registrationYear: fsDriver.registrationYear ?? null,
+            vehicleCapacity: fsDriver.vehicleCapacity ?? null,
+
+            licenseClass: fsDriver.licenseClass || null,
+            licenseIssueDate: fsDriver.licenseIssueDate || null,
+            licenseExpiryDate: fsDriver.licenseExpiryDate || null,
+
+            dniIssueDate: fsDriver.dniIssueDate || null,
+            dniExpiryDate: fsDriver.dniExpiryDate || null,
+
+            engineNumber: fsDriver.engineNumber || null,
+            chassisNumber: fsDriver.chassisNumber || null,
+            selfieUrl: fsDriver.photoUrl || null,
+            documentUrls: {
+              brevete_frente: fsDriver.breveteFrenteUrl || fsDriver.brevete_frente_url || null,
+              brevete_dorso: fsDriver.breveteDorsoUrl || fsDriver.brevete_dorso_url || null,
+              dni: fsDriver.dniUrl || fsDriver.dni_url || null,
+              selfie: fsDriver.selfieUrl || fsDriver.photoUrl || null,
+              selfieUrl: fsDriver.selfieUrl || fsDriver.photoUrl || null,
+              soat: fsDriver.soatUrl || fsDriver.soat_url || null,
+              tarjeta_propiedad: fsDriver.tarjetaPropiedadUrl || fsDriver.tarjeta_propiedad_url || null,
+              foto_vehiculo: fsDriver.fotoVehiculoUrl || fsDriver.foto_vehiculo_url || null,
+            },
+            soatIssueDate: fsDriver.soatIssueDate || null,
+            soatExpiry: fsDriver.soatExpiry || null,
             updatedAt: fsDriver.updatedAt,
-            createdAt: fsDriver.createdAt || fsDriver.updatedAt,
+            photoUrl: fsDriver.photoUrl || null,
+            rating: null,
           });
         }
+      } catch (fsErr) {
+        console.warn('[admin] drivers Firestore merge skipped:', fsErr.message);
       }
-    } catch (fsErr) {
-      console.warn('[admin] drivers Firestore merge skipped:', fsErr.message);
-    }
-
-    const driverIds = list.map((d) => d.driverId);
-    const docCounts = {};
-    if (driverIds.length > 0) {
-      const docs = await DriverDocument.findAll({
-        where: { driverId: driverIds },
-        attributes: ['driverId', 'documentType', 'fileUrl'],
-        raw: true,
-      });
-      const seen = {};
-      for (const doc of docs) {
-        const key = `${doc.driverId}:${doc.documentType}`;
-        if (!seen[key]) {
-          seen[key] = true;
-          docCounts[doc.driverId] = (docCounts[doc.driverId] || 0) + 1;
-        }
-      }
-    }
-    const ratingsByDriverId = {};
-    if (driverIds.length > 0) {
-      try {
-        const ratingRows = await Ride.findAll({
-          where: { driverId: driverIds },
-          attributes: ['driverId', [fn('AVG', col('userRating')), 'rating']],
-          group: ['driverId'],
-          raw: true,
-        });
-        for (const row of ratingRows) {
-          if (row.rating != null) {
-            ratingsByDriverId[row.driverId] = Number(row.rating);
-          }
-        }
-      } catch (ratingErr) {
-        console.warn('[admin] driver ratings:', ratingErr.message);
-      }
-    }
-    // Lookup phone from AppUser by email for each driver
-    const phoneByDriverId = {};
-    try {
-      const emailsMap = {};
-      for (const d of list) {
-        if (d.email) emailsMap[d.driverId] = d.email;
-      }
-      const emails = Object.values(emailsMap).filter(Boolean);
-      if (emails.length > 0) {
-        const appUsers = await AppUser.findAll({
-          where: { email: emails },
-          attributes: ['email', 'phone'],
-          raw: true,
-        });
-        const phoneByEmail = {};
-        for (const u of appUsers) {
-          if (u.phone) phoneByEmail[u.email] = u.phone;
-        }
-        for (const [did, em] of Object.entries(emailsMap)) {
-          if (phoneByEmail[em]) phoneByDriverId[did] = phoneByEmail[em];
-        }
-      }
-    } catch (phoneErr) {
-      console.warn('[admin] driver phones:', phoneErr.message);
     }
 
     // Sort merged list by updatedAt DESC
@@ -1187,21 +1160,47 @@ router.get('/drivers', authMiddleware, async (_req, res) => {
         driverName: d.driverName || null,
         email: d.email || null,
         blockReason: d.blockReason || null,
+        adminNotes: d.adminNotes || null,
+        customRatePerKm: d.customRatePerKm ?? null,
+        hasAntecedentesPoliciales: d.hasAntecedentesPoliciales ?? null,
+        hasAntecedentesPenales: d.hasAntecedentesPenales ?? null,
         city: d.city || null,
+        phone: d.phone || null,
         dni: d.dni || null,
         license: d.license || null,
         licenseNumber: d.license || null,
+
         vehicleBrand: d.vehicleBrand || null,
         vehicleModel: d.vehicleModel || null,
         vehicleColor: d.vehicleColor || null,
         registrationYear: d.registrationYear ?? null,
         vehicleCapacity: d.vehicleCapacity ?? null,
-        phone: phoneByDriverId[d.driverId] || d.phone || null,
+
+        licenseClass: d.licenseClass || null,
+        licenseIssueDate: d.licenseIssueDate || null,
+        licenseExpiryDate: d.licenseExpiryDate || null,
+
+        dniIssueDate: d.dniIssueDate || null,
+        dniExpiryDate: d.dniExpiryDate || null,
+
+        engineNumber: d.engineNumber || null,
+        chassisNumber: d.chassisNumber || null,
+        selfieUrl: d.photoUrl || null,
+        documentUrls: {
+          brevete_frente: d.breveteFrenteUrl || d.brevete_frente_url || null,
+          brevete_dorso: d.breveteDorsoUrl || d.brevete_dorso_url || null,
+          dni: d.dniUrl || d.dni_url || null,
+          selfie: d.selfieUrl || d.photoUrl || null,
+          selfieUrl: d.selfieUrl || d.photoUrl || null,
+          soat: d.soatUrl || d.soat_url || null,
+          tarjeta_propiedad: d.tarjetaPropiedadUrl || d.tarjeta_propiedad_url || null,
+          foto_vehiculo: d.fotoVehiculoUrl || d.foto_vehiculo_url || null,
+        },
+        soatIssueDate: d.soatIssueDate || null,
+        soatExpiry: d.soatExpiry || null,
         updatedAt: d.updatedAt,
-        createdAt: d.createdAt,
-        documentsCount: docCounts[d.driverId] || 0,
         photoUrl: (d.photoUrl && d.photoUrl.trim()) || null,
-        rating: ratingsByDriverId[d.driverId] ?? null,
+        rating: null,
       })),
     });
   } catch (err) {
@@ -1218,18 +1217,45 @@ router.get('/drivers', authMiddleware, async (_req, res) => {
           driverName: d.driverName || null,
           email: d.email || null,
           blockReason: d.blockReason || null,
+          adminNotes: null,
+          customRatePerKm: d.customRatePerKm ?? null,
+          hasAntecedentesPoliciales: d.hasAntecedentesPoliciales ?? null,
+          hasAntecedentesPenales: d.hasAntecedentesPenales ?? null,
           city: d.city || null,
+          phone: d.phone || null,
           dni: d.dni || null,
           license: d.license || null,
           licenseNumber: d.license || null,
+
           vehicleBrand: d.vehicleBrand || null,
           vehicleModel: d.vehicleModel || null,
           vehicleColor: d.vehicleColor || null,
           registrationYear: d.registrationYear ?? null,
           vehicleCapacity: d.vehicleCapacity ?? null,
-          phone: d.phone || null,
+
+          licenseClass: d.licenseClass || null,
+          licenseIssueDate: d.licenseIssueDate || null,
+          licenseExpiryDate: d.licenseExpiryDate || null,
+
+          dniIssueDate: d.dniIssueDate || null,
+          dniExpiryDate: d.dniExpiryDate || null,
+
+          engineNumber: d.engineNumber || null,
+          chassisNumber: d.chassisNumber || null,
+          selfieUrl: d.photoUrl || null,
+          documentUrls: {
+            brevete_frente: d.breveteFrenteUrl || d.brevete_frente_url || null,
+            brevete_dorso: d.breveteDorsoUrl || d.brevete_dorso_url || null,
+            dni: d.dniUrl || d.dni_url || null,
+            selfie: d.selfieUrl || d.photoUrl || null,
+            selfieUrl: d.selfieUrl || d.photoUrl || null,
+            soat: d.soatUrl || d.soat_url || null,
+            tarjeta_propiedad: d.tarjetaPropiedadUrl || d.tarjeta_propiedad_url || null,
+            foto_vehiculo: d.fotoVehiculoUrl || d.foto_vehiculo_url || null,
+          },
+          soatIssueDate: d.soatIssueDate || null,
+          soatExpiry: d.soatExpiry || null,
           updatedAt: d.updatedAt,
-          documentsCount: 0,
           photoUrl: (d.photoUrl && d.photoUrl.trim()) || null,
           rating: null,
         })),
@@ -1443,8 +1469,8 @@ router.get('/drivers/:id', authMiddleware, async (req, res) => {
             brevete_frente: fsRow.breveteFrenteUrl || fsRow.brevete_frente_url || null,
             brevete_dorso: fsRow.breveteDorsoUrl || fsRow.brevete_dorso_url || null,
             dni: fsRow.dniUrl || fsRow.dni_url || null,
-            selfie: fsRow.photoUrl || null,
-            selfieUrl: fsRow.photoUrl || null,
+            selfie: fsRow.selfieUrl || fsRow.photoUrl || null,
+            selfieUrl: fsRow.selfieUrl || fsRow.photoUrl || null,
             soat: fsRow.soatUrl || fsRow.soat_url || null,
             tarjeta_propiedad: fsRow.tarjetaPropiedadUrl || fsRow.tarjeta_propiedad_url || null,
             foto_vehiculo: fsRow.fotoVehiculoUrl || fsRow.foto_vehiculo_url || null,

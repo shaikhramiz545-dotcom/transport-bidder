@@ -4,7 +4,7 @@ import 'package:tbidder_user_app/core/api_config.dart';
 
 /// Tours (Attractions) API – list, detail, create booking.
 class ToursService {
-  String get _base => '${kApiBaseUrl.replaceFirst(RegExp(r'/$'), '')}/api/tours';
+  String get _base => '${kApiBaseUrl.replaceFirst(RegExp(r'/$'), '')}/api/v1/tours';
 
   /// GET /api/tours – list approved tours. Optional: country, city, category, q
   Future<Map<String, dynamic>> list({String? country, String? city, String? category, String? q}) async {

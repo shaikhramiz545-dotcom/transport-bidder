@@ -150,6 +150,7 @@ class _EmailOtpScreenState extends State<EmailOtpScreen> {
                 maxLength: 6,
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 24, letterSpacing: 8, fontWeight: FontWeight.bold),
+                onChanged: (v) { if (v.length == 6 && !_loading) _verifyOtp(); },
                 decoration: InputDecoration(
                   hintText: '000000',
                   counterText: '',

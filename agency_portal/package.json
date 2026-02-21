@@ -1,7 +1,7 @@
 {
   "name": "agency_portal",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -20,6 +20,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.1.1",
+    "netlify-cli": "^23.15.1",
     "vite": "^7.2.4"
   }
 }

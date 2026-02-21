@@ -684,7 +684,7 @@ class _HomeScreenState extends State<HomeScreen> {
         if (_pickup == null) {
           _pickup = latLng;
           _pickupDescription = _t('current_location');
-          // _pickupController.text = _t('current_location');
+          _pickupController.text = _t('current_location');
           _pickupPredictions = [];
         }
       });
@@ -2107,6 +2107,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     if (_drop == null) {
                       if (!mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_t('select_destination_first')), backgroundColor: Colors.orange));
+                      return;
+                    }
+                    if (_pickup == null) {
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_t('enter_origin')), backgroundColor: Colors.orange));
                       return;
                     }
                     try {

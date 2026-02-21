@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:tbidder_driver_app/core/app_theme.dart';
 import 'package:tbidder_driver_app/core/firm_config.dart';
@@ -6,6 +7,7 @@ import 'package:tbidder_driver_app/core/auth_api.dart';
 import 'package:tbidder_driver_app/features/auth/reset_password_screen.dart';
 import 'package:tbidder_driver_app/features/auth/signup_screen.dart';
 import 'package:tbidder_driver_app/features/home/home_screen.dart';
+import 'package:tbidder_driver_app/services/biometric_service.dart';
 import 'package:tbidder_driver_app/services/profile_storage_service.dart';
 
 /// Login screen — Dark theme, email+password, backend auth.
@@ -21,8 +23,23 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _authApi = AuthApi();
+  final _biometricService = BiometricService();
   bool _loading = false;
   bool _obscurePassword = true;
+  bool _biometricAvailable = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkBiometric();
+  }
+
+  Future<void> _checkBiometric() async {
+    final hasCreds = await _biometricService.hasStoredCredentials();
+    final supported = await _biometricService.isDeviceSupported();
+    final enabled = await _biometricService.isEnabled();
+    if (mounted) setState(() => _biometricAvailable = hasCreds && supported && enabled);
+  }
 
   @override
   void dispose() {
@@ -48,6 +65,8 @@ class _LoginScreenState extends State<LoginScreen> {
         if (res.user?.phone != null && res.user!.phone.isNotEmpty) {
           await ProfileStorageService.savePhone(res.user!.phone);
         }
+        if (!mounted) return;
+        await _maybeOfferBiometric(email, password);
         if (!mounted) return;
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const HomeScreen()),
@@ -80,6 +99,66 @@ class _LoginScreenState extends State<LoginScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _maybeOfferBiometric(String email, String password) async {
+    final supported = await _biometricService.isDeviceSupported();
+    if (!supported) return;
+    final alreadyShown = await _biometricService.hasPromptBeenShown();
+    if (alreadyShown) return;
+    if (!mounted) return;
+    final biometricType = await _biometricService.getBiometricType();
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          'Enable $biometricType Login?',
+          style: GoogleFonts.poppins(fontWeight: FontWeight.w700, color: Colors.white),
+        ),
+        content: Text(
+          'Sign in faster next time using $biometricType instead of typing your password.',
+          style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey.shade300),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('driver_biometric_prompt_shown', true);
+            },
+            child: Text('Skip', style: TextStyle(color: Colors.grey.shade500)),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              await _biometricService.enable(email, password);
+              if (mounted) setState(() => _biometricAvailable = true);
+            },
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFFF6700)),
+            child: Text('Enable $biometricType', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _loginWithBiometric() async {
+    final biometricType = await _biometricService.getBiometricType();
+    final success = await _biometricService.authenticate(
+      reason: 'Use $biometricType to sign in to Tbidder Driver',
+    );
+    if (!success) return;
+    final creds = await _biometricService.getStoredCredentials();
+    if (creds == null) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No saved credentials. Please log in with email.')));
+      return;
+    }
+    _emailController.text = creds.email;
+    _passwordController.text = creds.password;
+    await _loginWithEmail();
   }
 
   @override
@@ -208,6 +287,38 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: const Text('Forgot password?'),
                   ),
                 ),
+                if (_biometricAvailable) ...[
+                  const SizedBox(height: 20),
+                  Row(children: [
+                    Expanded(child: Divider(color: Colors.grey.shade700)),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Text('or', style: TextStyle(color: Colors.grey.shade500, fontSize: 13)),
+                    ),
+                    Expanded(child: Divider(color: Colors.grey.shade700)),
+                  ]),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _loading ? null : _loginWithBiometric,
+                      icon: const Icon(Icons.fingerprint, size: 24, color: AppTheme.neonOrange),
+                      label: FutureBuilder<String>(
+                        future: BiometricService().getBiometricType(),
+                        builder: (_, snap) => Text(
+                          'Sign in with ${snap.data ?? 'Biometric'}',
+                          style: GoogleFonts.poppins(fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        side: const BorderSide(color: AppTheme.neonOrange),
+                        foregroundColor: AppTheme.neonOrange,
+                      ),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 24),
               ],
             ),

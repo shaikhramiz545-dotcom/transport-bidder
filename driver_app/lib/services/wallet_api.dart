@@ -37,7 +37,7 @@ class WalletApi {
 
   /// GET /api/wallet/balance – Returns (effectiveBalance, creditsValidUntil).
   Future<(int balance, String? creditsValidUntil)> getBalanceWithValidity(String driverId) async {
-    final uri = Uri.parse('$_baseUrl/api/wallet/balance').replace(
+    final uri = Uri.parse('$_baseUrl/api/v1/wallet/balance').replace(
       queryParameters: {'driverId': driverId},
     );
     final res = await http.get(uri, headers: await _authHeaders());
@@ -53,7 +53,7 @@ class WalletApi {
 
   /// GET /api/wallet/transactions?driverId=xxx
   Future<List<Map<String, dynamic>>> getTransactions(String driverId) async {
-    final uri = Uri.parse('$_baseUrl/api/wallet/transactions').replace(
+    final uri = Uri.parse('$_baseUrl/api/v1/wallet/transactions').replace(
       queryParameters: {'driverId': driverId},
     );
     final res = await http.get(uri, headers: await _authHeaders());
@@ -65,7 +65,7 @@ class WalletApi {
 
   /// GET /api/wallet/scratch-status?driverId=xxx
   Future<({bool canScratch, String? lastScratchAt})> getScratchStatus(String driverId) async {
-    final uri = Uri.parse('$_baseUrl/api/wallet/scratch-status').replace(
+    final uri = Uri.parse('$_baseUrl/api/v1/wallet/scratch-status').replace(
       queryParameters: {'driverId': driverId},
     );
     final res = await http.get(uri, headers: await _authHeaders());
@@ -78,7 +78,7 @@ class WalletApi {
 
   /// POST /api/wallet/scratch-card – claim daily 1–10 credits.
   Future<({int credits, int newBalance})?> claimScratchCard(String driverId) async {
-    final uri = Uri.parse('$_baseUrl/api/wallet/scratch-card');
+    final uri = Uri.parse('$_baseUrl/api/v1/wallet/scratch-card');
     final res = await http.post(
       uri,
       headers: await _authHeaders(json: true),
@@ -98,7 +98,7 @@ class WalletApi {
     required String transactionId,
     required String screenshotUrl,
   }) async {
-    final uri = Uri.parse('$_baseUrl/api/wallet/recharge');
+    final uri = Uri.parse('$_baseUrl/api/v1/wallet/recharge');
     final res = await http.post(
       uri,
       headers: await _authHeaders(json: true),

@@ -326,6 +326,12 @@ final Map<String, Map<String, String>> _translations = {
     'ru': 'Выбрано на карте',
     'fr': 'Sélectionné sur la carte',
   },
+  'enter_origin': {
+    'en': 'Please set your pickup location first',
+    'es': 'Primero establece tu punto de origen',
+    'ru': 'Сначала укажите точку отправления',
+    'fr': 'Veuillez d\'abord définir le point de départ',
+  },
   'select_destination_first': {
     'en': 'Please select destination first',
     'es': 'Selecciona primero el destino',

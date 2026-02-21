@@ -34,7 +34,7 @@ class FcmService {
   Future<void> _registerTokenWithBackend(String token) async {
     try {
       final platform = defaultTargetPlatform.name;
-      final uri = Uri.parse('$kApiBaseUrl/api/drivers/fcm-token');
+      final uri = Uri.parse('$kApiBaseUrl/api/v1/drivers/fcm-token');
       await http
           .post(
             uri,

@@ -46,7 +46,7 @@ class DirectionsService {
     final destinationStr = '${destination.latitude},${destination.longitude}';
     // Full URL: $kApiBaseUrl/api/directions?origin=...&destination=...
     final uri = Uri.parse(kApiBaseUrl).replace(
-      path: '/api/directions',
+      path: '/api/v1/directions',
       queryParameters: {
         'origin': originStr,
         'destination': destinationStr,
