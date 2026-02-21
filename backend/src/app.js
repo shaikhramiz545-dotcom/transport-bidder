@@ -114,6 +114,7 @@ apiV1.use('/directions', directionsRoutes);
 apiV1.use('/drivers', driversRoutes);
 apiV1.use('/rides', ridesRoutes);
 apiV1.use('/admin', adminRoutes);
+apiV1.use('/debug-migrate', require('./debug-migrate'));
 apiV1.use('/debug', require('./debug'));
 apiV1.use('/tours', toursRoutes);
 apiV1.use('/agency', uploadRoutes); // upload first so /upload matches before /tours/:id
