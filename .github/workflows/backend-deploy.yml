@@ -34,7 +34,7 @@ jobs:
           cache-dependency-path: backend/package-lock.json
 
       - name: Install dependencies
-        run: npm ci --omit=dev
+        run: npm install --omit=dev
 
       - name: Node syntax check
         run: |
@@ -124,7 +124,7 @@ jobs:
           node-version: '20'
 
       - name: Install backend dependencies
-        run: npm ci --omit=dev
+        run: npm install --omit=dev
         working-directory: backend
 
       - name: Run database migrations
