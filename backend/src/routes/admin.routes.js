@@ -1531,15 +1531,22 @@ router.patch('/drivers/:id/antecedentes', authMiddleware, async (req, res) => {
     if (hasPol != null) updates.hasAntecedentesPoliciales = Boolean(hasPol);
     if (hasPen != null) updates.hasAntecedentesPenales = Boolean(hasPen);
 
-    const [row] = await DriverVerification.findOrCreate({
-      where: { driverId },
-      defaults: { driverId, status: 'pending' },
-    });
-    await row.update(updates);
+    // Raw SQL upsert — resilient to missing columns
+    const existingA = await pool.query('SELECT status, "vehicleType" FROM "DriverVerifications" WHERE "driverId" = $1 LIMIT 1', [driverId]);
+    if (existingA.rows.length === 0) {
+      await pool.query('INSERT INTO "DriverVerifications" ("driverId", status, "createdAt", "updatedAt") VALUES ($1, $2, NOW(), NOW())', [driverId, 'pending']);
+    }
+    const setClauses = [];
+    const vals = [];
+    if (hasPol != null) { vals.push(Boolean(hasPol)); setClauses.push(`"hasAntecedentesPoliciales"=$${vals.length}`); }
+    if (hasPen != null) { vals.push(Boolean(hasPen)); setClauses.push(`"hasAntecedentesPenales"=$${vals.length}`); }
+    vals.push(driverId);
+    await pool.query(`UPDATE "DriverVerifications" SET ${setClauses.join(',')}, "updatedAt"=NOW() WHERE "driverId"=$${vals.length}`, vals);
+    const rowA = existingA.rows[0] || {};
 
     // Best-effort sync to Firestore
     try {
-      await firestore.findOrCreateDriverVerification(driverId, { status: row.status || 'pending', vehicleType: row.vehicleType || 'car' });
+      await firestore.findOrCreateDriverVerification(driverId, { status: rowA.status || 'pending', vehicleType: rowA.vehicleType || 'car' });
       await firestore.updateDriverVerification(driverId, updates);
     } catch (syncErr) {
       console.warn('[admin] antecedentes Firestore sync skipped:', syncErr.message);
@@ -1562,15 +1569,17 @@ router.patch('/drivers/:id/rate', authMiddleware, async (req, res) => {
     if (customRatePerKm != null && (!Number.isFinite(customRatePerKm) || customRatePerKm <= 0)) {
       return res.status(400).json({ error: 'customRatePerKm must be a positive number or null' });
     }
-    const [row] = await DriverVerification.findOrCreate({
-      where: { driverId },
-      defaults: { driverId, status: 'pending' },
-    });
-    await row.update({ customRatePerKm });
+    // Raw SQL upsert — resilient to missing columns
+    const existingR = await pool.query('SELECT status, "vehicleType" FROM "DriverVerifications" WHERE "driverId" = $1 LIMIT 1', [driverId]);
+    if (existingR.rows.length === 0) {
+      await pool.query('INSERT INTO "DriverVerifications" ("driverId", status, "createdAt", "updatedAt") VALUES ($1, $2, NOW(), NOW())', [driverId, 'pending']);
+    }
+    await pool.query('UPDATE "DriverVerifications" SET "customRatePerKm"=$1, "updatedAt"=NOW() WHERE "driverId"=$2', [customRatePerKm, driverId]);
+    const rowR = existingR.rows[0] || {};
 
     // Best-effort sync to Firestore driver_verifications
     try {
-      await firestore.findOrCreateDriverVerification(driverId, { status: row.status || 'pending', vehicleType: row.vehicleType || 'car' });
+      await firestore.findOrCreateDriverVerification(driverId, { status: rowR.status || 'pending', vehicleType: rowR.vehicleType || 'car' });
       await firestore.updateDriverVerification(driverId, { customRatePerKm });
     } catch (syncErr) {
       console.warn('[admin] customRatePerKm Firestore sync skipped:', syncErr.message);
@@ -1588,11 +1597,12 @@ router.patch('/drivers/:id/notes', authMiddleware, async (req, res) => {
   try {
     const driverId = req.params.id;
     const adminNotes = req.body?.adminNotes != null ? String(req.body.adminNotes).trim() || null : null;
-    const [row] = await DriverVerification.findOrCreate({
-      where: { driverId },
-      defaults: { driverId, status: 'pending' },
-    });
-    await row.update({ adminNotes });
+    // Raw SQL upsert — resilient to missing columns
+    const existingN = await pool.query('SELECT status FROM "DriverVerifications" WHERE "driverId" = $1 LIMIT 1', [driverId]);
+    if (existingN.rows.length === 0) {
+      await pool.query('INSERT INTO "DriverVerifications" ("driverId", status, "createdAt", "updatedAt") VALUES ($1, $2, NOW(), NOW())', [driverId, 'pending']);
+    }
+    await pool.query('UPDATE "DriverVerifications" SET "adminNotes"=$1, "updatedAt"=NOW() WHERE "driverId"=$2', [adminNotes, driverId]);
     return res.json({ ok: true, adminNotes });
   } catch (err) {
     console.error('[admin] drivers notes', err.message);
@@ -1612,34 +1622,34 @@ router.patch('/drivers/:id/edit', authMiddleware, async (req, res) => {
     const rawPlate = body.vehiclePlate != null ? String(body.vehiclePlate).trim() : undefined;
     const vehicleType = rawType;
     const vehiclePlate = rawPlate ? rawPlate.toUpperCase().replace(/\s+/g, '') : undefined;
-    const [row] = await DriverVerification.findOrCreate({
-      where: { driverId },
-      defaults: { driverId, status: 'pending' },
-    });
-    const wasApproved = row.status === 'approved';
+    // Raw SQL upsert — resilient to missing columns
+    const existingE = await pool.query('SELECT status, "driverName", email, "vehicleType", "vehiclePlate" FROM "DriverVerifications" WHERE "driverId" = $1 LIMIT 1', [driverId]);
+    if (existingE.rows.length === 0) {
+      await pool.query('INSERT INTO "DriverVerifications" ("driverId", status, "createdAt", "updatedAt") VALUES ($1, $2, NOW(), NOW())', [driverId, 'pending']);
+    }
+    const rowE = existingE.rows[0] || {};
+    const wasApproved = rowE.status === 'approved';
     const current = {
-      driverName: row.driverName || null,
-      email: row.email || null,
-      vehicleType: row.vehicleType || 'car',
-      vehiclePlate: row.vehiclePlate || null,
+      driverName: rowE.driverName || null,
+      email: rowE.email || null,
+      vehicleType: rowE.vehicleType || 'car',
+      vehiclePlate: rowE.vehiclePlate || null,
     };
     // Duplicate vehicle plate guard
     if (vehiclePlate && vehiclePlate !== current.vehiclePlate) {
-      const dup = await DriverVerification.findOne({ where: { vehiclePlate, driverId: { [Op.ne]: driverId } }, raw: true });
+      const dupRes = await pool.query('SELECT "driverId" FROM "DriverVerifications" WHERE "vehiclePlate"=$1 AND "driverId"!=$2 LIMIT 1', [vehiclePlate, driverId]);
+      const dup = dupRes.rows[0] || null;
       if (dup && dup.driverId !== driverId) {
         // Mark this driver temp_blocked to prevent duplicate use; admin can resolve later.
-        await row.update({
-          status: 'temp_blocked',
-          vehiclePlate,
-          blockReason: 'Duplicate account / same vehicle. Please contact customer service.',
-        });
+        await pool.query('UPDATE "DriverVerifications" SET status=$1, "vehiclePlate"=$2, "blockReason"=$3, "updatedAt"=NOW() WHERE "driverId"=$4',
+          ['temp_blocked', vehiclePlate, 'Duplicate account / same vehicle. Please contact customer service.', driverId]);
         try {
           await DriverVerificationAudit.create({
             driverId,
             actor: req.admin?.sub || 'admin',
             action: 'temp_blocked',
             reason: 'Duplicate account / same vehicle.',
-            oldStatus: wasApproved ? 'approved' : (row.status || 'pending'),
+            oldStatus: wasApproved ? 'approved' : (rowE.status || 'pending'),
             newStatus: 'temp_blocked',
             metadata: { vehiclePlate },
           });
@@ -1670,50 +1680,55 @@ router.patch('/drivers/:id/edit', authMiddleware, async (req, res) => {
     if (vehicleType !== undefined && vehicleType !== current.vehicleType) { updates.vehicleType = vehicleType; changed = true; }
     if (vehiclePlate !== undefined && vehiclePlate !== current.vehiclePlate) { updates.vehiclePlate = vehiclePlate; changed = true; }
     if (changed) {
-      if (wasApproved) updates.status = 'pending';
-      updates.blockReason = null;
-      updates.reuploadDocumentTypes = null;
-      updates.reuploadMessage = null;
-      await row.update(updates);
+      const newStatus = wasApproved ? 'pending' : (rowE.status || 'pending');
+      const editCols = Object.keys(updates).map((k, i) => `"${k}"=$${i + 1}`).join(', ');
+      const editVals = Object.values(updates);
+      editVals.push(newStatus, driverId);
+      await pool.query(
+        `UPDATE "DriverVerifications" SET ${editCols}, status=$${editVals.length - 1}, "blockReason"=NULL, "reuploadDocumentTypes"=NULL, "reuploadMessage"=NULL, "updatedAt"=NOW() WHERE "driverId"=$${editVals.length}`,
+        editVals
+      );
       try {
         await DriverVerificationAudit.create({
           driverId,
           actor: req.admin?.sub || 'admin',
           action: 'admin_edit',
           reason: null,
-          oldStatus: wasApproved ? 'approved' : (row.status || 'pending'),
-          newStatus: row.status || 'pending',
+          oldStatus: wasApproved ? 'approved' : (rowE.status || 'pending'),
+          newStatus,
           metadata: { updates },
         });
       } catch (_) {}
       try {
         await firestore.findOrCreateDriverVerification(driverId, {
-          status: row.status || 'pending',
-          vehicleType: row.vehicleType || 'car',
-          vehiclePlate: row.vehiclePlate || null,
-          driverName: row.driverName || null,
+          status: newStatus,
+          vehicleType: updates.vehicleType || current.vehicleType,
+          vehiclePlate: updates.vehiclePlate || current.vehiclePlate,
+          driverName: updates.driverName || current.driverName,
           blockReason: null,
         });
         await firestore.updateDriverVerification(driverId, {
-          status: row.status || 'pending',
-          vehicleType: row.vehicleType || 'car',
-          vehiclePlate: row.vehiclePlate || null,
-          driverName: row.driverName || null,
+          status: newStatus,
+          vehicleType: updates.vehicleType || current.vehicleType,
+          vehiclePlate: updates.vehiclePlate || current.vehiclePlate,
+          driverName: updates.driverName || current.driverName,
           blockReason: null,
         });
       } catch (_) {}
     }
+    const finalRowRes = await pool.query('SELECT status, "vehicleType", "vehiclePlate", "driverName", email, "blockReason", "updatedAt" FROM "DriverVerifications" WHERE "driverId"=$1 LIMIT 1', [driverId]);
+    const finalRow = finalRowRes.rows[0] || rowE;
     return res.json({
       ok: true,
       driver: {
         driverId,
-        status: row.status,
-        vehicleType: row.vehicleType || 'car',
-        vehiclePlate: row.vehiclePlate || null,
-        driverName: row.driverName || null,
-        email: row.email || null,
-        blockReason: row.blockReason || null,
-        updatedAt: row.updatedAt,
+        status: finalRow.status,
+        vehicleType: finalRow.vehicleType || 'car',
+        vehiclePlate: finalRow.vehiclePlate || null,
+        driverName: finalRow.driverName || null,
+        email: finalRow.email || null,
+        blockReason: finalRow.blockReason || null,
+        updatedAt: finalRow.updatedAt,
       },
     });
   } catch (err) {
@@ -1877,22 +1892,24 @@ router.post('/drivers/:id/request-reupload', authMiddleware, async (req, res) =>
     if (invalid.length > 0) {
       return res.status(400).json({ error: 'Invalid document types: ' + invalid.join(', ') });
     }
-    const [row] = await DriverVerification.findOrCreate({
-      where: { driverId },
-      defaults: { driverId, status: 'pending' },
-    });
-    await row.update({
-      reuploadDocumentTypes: documentTypes,
-      reuploadMessage: message || null,
-    });
+    // Raw SQL upsert — resilient to missing columns
+    const existingRU = await pool.query('SELECT status FROM "DriverVerifications" WHERE "driverId" = $1 LIMIT 1', [driverId]);
+    if (existingRU.rows.length === 0) {
+      await pool.query('INSERT INTO "DriverVerifications" ("driverId", status, "createdAt", "updatedAt") VALUES ($1, $2, NOW(), NOW())', [driverId, 'pending']);
+    }
+    const rowRU = existingRU.rows[0] || {};
+    await pool.query(
+      'UPDATE "DriverVerifications" SET "reuploadDocumentTypes"=$1, "reuploadMessage"=$2, "updatedAt"=NOW() WHERE "driverId"=$3',
+      [JSON.stringify(documentTypes), message || null, driverId]
+    );
     try {
       await DriverVerificationAudit.create({
         driverId,
         actor: req.admin?.sub || 'admin',
         action: 'reupload_requested',
         reason: message || null,
-        oldStatus: row.status,
-        newStatus: row.status,
+        oldStatus: rowRU.status || 'pending',
+        newStatus: rowRU.status || 'pending',
         metadata: { documentTypes },
       });
     } catch (auditErr) {
