@@ -456,13 +456,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _recheckLocation() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final hadPreviousLocation = prefs.getDouble(_kDriverLastLat) != null && prefs.getDouble(_kDriverLastLng) != null;
 
+      // Only check permission, don't show dialog for GPS off
       final p = await Geolocator.checkPermission();
       if (p == LocationPermission.deniedForever || p == LocationPermission.denied) {
-        if (mounted) setState(() { _locationDenied = true; _showLocationOffDialog = hadPreviousLocation; });
+        if (mounted) setState(() { _locationDenied = true; _showLocationOffDialog = true; });
         return;
       }
+      
+      // Permission granted, try to get position
       final pos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.medium,
         timeLimit: const Duration(seconds: 5),
@@ -482,10 +484,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
       _centerOnUser();
     } catch (_) {
+      // If getCurrentPosition fails, don't show dialog - GPS might be off but permission is granted
+      // Only set locationDenied flag, don't show popup
       if (mounted) {
-        final prefs = await SharedPreferences.getInstance();
-        final hadPreviousLocation = prefs.getDouble(_kDriverLastLat) != null && prefs.getDouble(_kDriverLastLng) != null;
-        setState(() { _locationDenied = true; _showLocationOffDialog = hadPreviousLocation; });
+        setState(() { _locationDenied = false; _showLocationOffDialog = false; });
       }
     }
   }
@@ -845,12 +847,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         });
       }).catchError((_) {});
     } catch (_) {
+      // If getCurrentPosition fails, don't show dialog - GPS might be off but permission is granted
+      // Only show dialog if permission is actually denied
       if (mounted) {
-        final prefs = await SharedPreferences.getInstance();
-        final hadPreviousLocation = prefs.getDouble(_kDriverLastLat) != null && prefs.getDouble(_kDriverLastLng) != null;
         setState(() {
-          _locationDenied = true;
-          _showLocationOffDialog = hadPreviousLocation;
+          _locationDenied = false;
+          _showLocationOffDialog = false;
         });
       }
     }

@@ -84,6 +84,29 @@ class RideBidService {
     }
   }
 
+  /// Create driverId if missing by calling verification-register with phone, then resolve.
+  Future<String?> createDriverIdIfMissing(String phone) async {
+    try {
+      final token = await ProfileStorageService.getAuthToken();
+      final headers = <String, String>{'Content-Type': 'application/json'};
+      if (token != null && token.trim().isNotEmpty) {
+        headers['Authorization'] = 'Bearer ${token.trim()}';
+      }
+      // verification-register generates driverId server-side when none exists
+      await http
+          .post(
+            Uri.parse('$_base/api/v1/drivers/verification-register'),
+            headers: headers,
+            body: json.encode({'phone': phone.trim()}),
+          )
+          .timeout(const Duration(seconds: 10), onTimeout: () => throw Exception('Timeout'));
+      // Re-resolve to fetch the generated ID
+      return await resolveDriverIdByPhone(phone);
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Send chat message (driver). Only allowed until ride completed.
   Future<bool> sendChatMessage(String rideId, String text) async {
     try {

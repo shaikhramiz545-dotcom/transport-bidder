@@ -108,15 +108,15 @@ class _OtpScreenState extends State<OtpScreen> {
           // Auto-generate driver ID immediately after login
           String? driverId = res.user?.driverId;
           if (driverId == null || driverId.isEmpty) {
-            // Call backend to generate driver ID using phone number
             try {
               final rideBidService = RideBidService();
-              driverId = await rideBidService.resolveDriverIdByPhone(widget.phoneNumber);
+              // Force-create driverId using verification-register, then resolve
+              driverId = await rideBidService.createDriverIdIfMissing(widget.phoneNumber);
               if (driverId != null && driverId.isNotEmpty) {
                 await ProfileStorageService.saveDriverId(driverId);
               }
             } catch (_) {
-              // If auto-generation fails, driver can still proceed - ID will be created on first /location call
+              // If auto-generation fails, continue; will retry in verification screen
             }
           } else {
             await ProfileStorageService.saveDriverId(driverId);

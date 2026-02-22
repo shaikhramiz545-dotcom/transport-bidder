@@ -13,6 +13,7 @@ import 'package:tbidder_driver_app/core/app_theme.dart';
 import 'package:tbidder_driver_app/core/api_config.dart';
 import 'package:tbidder_driver_app/l10n/app_locale.dart';
 import 'package:tbidder_driver_app/services/profile_storage_service.dart';
+import 'package:tbidder_driver_app/services/ride_bid_service.dart';
 import 'package:tbidder_driver_app/features/wallet/wallet_screen.dart';
 import 'package:tbidder_driver_app/features/verification/vehicle_fields_widget.dart';
 
@@ -156,13 +157,22 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
       final phone = await ProfileStorageService.getPhone();
       if (phone != null && phone.trim().isNotEmpty) {
         final rideBidService = RideBidService();
-        final driverId = await rideBidService.resolveDriverIdByPhone(phone);
+        // First try to resolve existing ID
+        var driverId = await rideBidService.resolveDriverIdByPhone(phone);
+        // If not found, force-create using verification-register
+        if (driverId == null || driverId.isEmpty) {
+          debugPrint('[Verification] No existing driverId, creating new one for phone: $phone');
+          driverId = await rideBidService.createDriverIdIfMissing(phone);
+        }
         if (driverId != null && driverId.isNotEmpty) {
+          debugPrint('[Verification] Driver ID generated: $driverId');
           await prefs.setString(_kDriverIdKey, driverId);
+        } else {
+          debugPrint('[Verification] Failed to generate driver ID');
         }
       }
-    } catch (_) {
-      // If auto-generation fails, continue - driver can still view verification screen
+    } catch (e) {
+      debugPrint('[Verification] _ensureDriverId error: $e');
     }
   }
 
@@ -173,7 +183,13 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
     await _ensureDriverId();
     final prefs = await SharedPreferences.getInstance();
     final id = prefs.getString(_kDriverIdKey) ?? '';
-    if (mounted) setState(() => _hasNoDriverId = id.isEmpty);
+    if (mounted) {
+      setState(() => _hasNoDriverId = id.isEmpty);
+      // If still no ID after generation attempt, show error instead of infinite loading
+      if (id.isEmpty) {
+        debugPrint('[Verification] Driver ID still empty after generation attempt');
+      }
+    }
     await _fetchVerificationStatus();
     await _loadUploadedDocuments(id);
   }
