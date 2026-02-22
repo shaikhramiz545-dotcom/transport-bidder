@@ -12,52 +12,27 @@ class LocationService {
   /// Stream of driver's current position (emitted every ~5 seconds when started).
   Stream<LatLng> get locationStream => _locationController.stream;
 
-  /// Request "Always" location permission. Shows Spanish dialog if not granted.
+  /// Request "Always" location permission. Uses only system default dialog.
   /// On web, permission_handler is not implemented — treat as granted so app can run in Chrome.
   Future<bool> requestAlwaysLocationPermission(BuildContext context) async {
     if (kIsWeb) return true;
     try {
+      // Request "When in Use" first (required before "Always")
       final status = await Permission.locationWhenInUse.status;
-    if (!status.isGranted) {
-      final whenInUse = await Permission.locationWhenInUse.request();
-      if (!whenInUse.isGranted) return false;
-    }
+      if (!status.isGranted) {
+        final whenInUse = await Permission.locationWhenInUse.request();
+        if (!whenInUse.isGranted) return false;
+      }
 
-    final always = await Permission.locationAlways.status;
-    if (always.isGranted) return true;
+      // Request "Always" permission - system will show default dialog
+      final always = await Permission.locationAlways.status;
+      if (always.isGranted) return true;
 
-    final shouldOpen = await _showAlwaysReasonDialog(context);
-    if (!shouldOpen) return false;
-
-    final result = await Permission.locationAlways.request();
-    return result.isGranted;
+      final result = await Permission.locationAlways.request();
+      return result.isGranted;
     } on UnimplementedError {
       return true; // Web / unsupported platform
     }
-  }
-
-  Future<bool> _showAlwaysReasonDialog(BuildContext context) async {
-    return await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Ubicación siempre'),
-        content: const Text(
-          'Necesitamos tu ubicación siempre para que el usuario pueda rastrear el viaje en tiempo real.',
-          style: TextStyle(fontSize: 16),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Permitir siempre'),
-          ),
-        ],
-      ),
-    ) ?? false;
   }
 
   Timer? _timer;

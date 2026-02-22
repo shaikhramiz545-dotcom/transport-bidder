@@ -147,15 +147,26 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
     }
   }
 
-  /// Single source of truth: driverId is created ONLY when driver goes online from Home (POST /location).
-  /// We do NOT call /location here — that caused a new ID and new pending row on every Verification open.
+  /// Auto-generate driverId if missing using phone number (prevents "go online first" requirement).
   Future<void> _ensureDriverId() async {
     final prefs = await SharedPreferences.getInstance();
     if ((prefs.getString(_kDriverIdKey) ?? '').isNotEmpty) return;
-    // No API call when ID missing — show "Go online first" instead. Prevents duplicate pending rows.
+    // Auto-generate driver ID using phone number
+    try {
+      final phone = await ProfileStorageService.getPhone();
+      if (phone != null && phone.trim().isNotEmpty) {
+        final rideBidService = RideBidService();
+        final driverId = await rideBidService.resolveDriverIdByPhone(phone);
+        if (driverId != null && driverId.isNotEmpty) {
+          await prefs.setString(_kDriverIdKey, driverId);
+        }
+      }
+    } catch (_) {
+      // If auto-generation fails, continue - driver can still view verification screen
+    }
   }
 
-  /// True when prefs has no driverId (user must go online first — single source of truth).
+  /// True when prefs has no driverId (will auto-generate on screen load).
   bool _hasNoDriverId = false;
 
   Future<void> _ensureDriverIdThenFetch() async {
@@ -690,19 +701,19 @@ class _VerificationScreenState extends State<VerificationScreen> with AutomaticK
                 padding: const EdgeInsets.all(24),
                 child: Center(
                   child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.info_outline, size: 56, color: AppTheme.neonOrange),
+                      const CircularProgressIndicator(color: AppTheme.neonOrange),
                       const SizedBox(height: 16),
                       Text(
-                        'Please go online first to get your Driver ID',
+                        'Generating your Driver ID...',
                         style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600, color: AppTheme.onDark),
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Open the menu, go to Home, then tap "Go Online". Your ID will appear in the menu.',
-                        style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey.shade400),
+                        'Please wait a moment',
+                        style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey.shade400),
                         textAlign: TextAlign.center,
                       ),
                     ],

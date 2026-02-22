@@ -4,6 +4,7 @@ import 'package:tbidder_driver_app/core/app_theme.dart';
 import 'package:tbidder_driver_app/core/auth_api.dart';
 import 'package:tbidder_driver_app/features/home/home_screen.dart';
 import 'package:tbidder_driver_app/services/profile_storage_service.dart';
+import 'package:tbidder_driver_app/services/ride_bid_service.dart';
 
 /// OTP verification — Firebase 6-digit or backend 6-digit, dark theme.
 class OtpScreen extends StatefulWidget {
@@ -104,9 +105,21 @@ class _OtpScreenState extends State<OtpScreen> {
         if (res.success) {
           await ProfileStorageService.saveAuthToken(res.token);
           await ProfileStorageService.savePhone(widget.phoneNumber);
-          // Save Driver ID if returned from backend
-          if (res.user?.driverId != null) {
-            await ProfileStorageService.saveDriverId(res.user!.driverId);
+          // Auto-generate driver ID immediately after login
+          String? driverId = res.user?.driverId;
+          if (driverId == null || driverId.isEmpty) {
+            // Call backend to generate driver ID using phone number
+            try {
+              final rideBidService = RideBidService();
+              driverId = await rideBidService.resolveDriverIdByPhone(widget.phoneNumber);
+              if (driverId != null && driverId.isNotEmpty) {
+                await ProfileStorageService.saveDriverId(driverId);
+              }
+            } catch (_) {
+              // If auto-generation fails, driver can still proceed - ID will be created on first /location call
+            }
+          } else {
+            await ProfileStorageService.saveDriverId(driverId);
           }
           if (!mounted) return;
           Navigator.of(context).pushAndRemoveUntil(
