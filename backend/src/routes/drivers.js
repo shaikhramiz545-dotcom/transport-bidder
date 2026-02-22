@@ -795,8 +795,20 @@ router.post('/verification-register', requireRole('driver'), async (req, res) =>
     const body = req.body || {};
     const authDriverId = await resolveAuthDriverId(req);
     const requestedDriverId = (body.driverId && String(body.driverId).trim()) || '';
-    const driverId = authDriverId || requestedDriverId;
-    if (!driverId) return res.status(400).json({ ok: false, message: 'driverId required' });
+    let driverId = authDriverId || requestedDriverId;
+    
+    // AUTO-GENERATE driverId from phone if missing (for new drivers)
+    if (!driverId) {
+      const phone = req.auth?.phone ? String(req.auth.phone).trim() : (body.phone ? String(body.phone).trim() : '');
+      if (!phone) return res.status(400).json({ ok: false, message: 'Phone number required to generate driver ID' });
+      
+      // Generate stable driverId from phone: DRV_<last10digits>_<timestamp>
+      const phoneDigits = phone.replace(/\D/g, '').slice(-10);
+      const timestamp = Date.now().toString(36).toUpperCase();
+      driverId = `DRV_${phoneDigits}_${timestamp}`;
+      console.log('[drivers] AUTO-GENERATED driverId for new driver:', { phone, driverId });
+    }
+    
     if (authDriverId && requestedDriverId && requestedDriverId !== authDriverId) {
       return res.status(403).json({ ok: false, message: 'Forbidden' });
     }
@@ -1116,7 +1128,7 @@ router.post('/verification-register', requireRole('driver'), async (req, res) =>
       console.warn('[drivers] verification-register document sync skipped:', docPersistErr.message);
     }
 
-    return res.json({ ok: true, status: finalStatus });
+    return res.json({ ok: true, status: finalStatus, driverId });
   } catch (err) {
     console.error('[drivers] verification-register', err.message);
     return res.status(500).json({ ok: false, message: err.message });

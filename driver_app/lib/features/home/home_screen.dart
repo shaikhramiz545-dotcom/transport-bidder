@@ -55,6 +55,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isOnline = false;
   IncomingRequest? _incomingRequest;
   CameraPosition _initialCamera = const CameraPosition(target: _defaultCenter, zoom: 14);
+  bool _locationLoaded = false;
   Timer? _requestPollTimer;
   final Set<String> _declinedRideIds = {};
   String? _acceptedRideId;
@@ -814,28 +815,47 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           setState(() {
             _locationDenied = true;
             _showLocationOffDialog = hadPreviousLocation;
+            _locationLoaded = true;
           });
         }
         return;
       }
-      // Use medium accuracy first (fast ~1s), then refine with high in background
-      final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.medium,
-        timeLimit: const Duration(seconds: 5),
-      );
+      
+      // Try to get location with retries
+      Position? pos;
+      for (int attempt = 1; attempt <= 3; attempt++) {
+        try {
+          debugPrint('[HomeScreen] Getting location, attempt $attempt/3');
+          pos = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.medium,
+            timeLimit: Duration(seconds: 5 + (attempt * 2)),
+          );
+          break;
+        } catch (e) {
+          debugPrint('[HomeScreen] Location attempt $attempt failed: $e');
+          if (attempt == 3) rethrow;
+          await Future.delayed(Duration(seconds: 1));
+        }
+      }
+      
+      if (pos == null) throw Exception('Failed to get location after 3 attempts');
+      
       if (!mounted) return;
       await prefs.setDouble(_kDriverLastLat, pos.latitude);
       await prefs.setDouble(_kDriverLastLng, pos.longitude);
+      final posLatLng = LatLng(pos.latitude, pos.longitude);
       setState(() {
         _userPosition = pos;
-        _driverMarkerPosition = LatLng(pos.latitude, pos.longitude);
+        _driverMarkerPosition = posLatLng;
         _locationDenied = false;
         _showLocationOffDialog = false;
+        _locationLoaded = true;
         _initialCamera = CameraPosition(
-          target: LatLng(pos.latitude, pos.longitude),
+          target: posLatLng,
           zoom: 15,
         );
       });
+      debugPrint('[HomeScreen] Location loaded: ${pos.latitude}, ${pos.longitude}');
       _centerOnUser();
       _showLocationAlwaysOnPopupIfNeeded();
       // Background: refine with high accuracy after map is already centered
@@ -846,14 +866,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _driverMarkerPosition = LatLng(refined.latitude, refined.longitude);
         });
       }).catchError((_) {});
-    } catch (_) {
-      // If getCurrentPosition fails, don't show dialog - GPS might be off but permission is granted
-      // Only show dialog if permission is actually denied
+    } catch (e) {
+      debugPrint('[HomeScreen] _initLocation failed: $e');
+      // Try to load last known location from prefs
+      final prefs = await SharedPreferences.getInstance();
+      final lastLat = prefs.getDouble(_kDriverLastLat);
+      final lastLng = prefs.getDouble(_kDriverLastLng);
       if (mounted) {
-        setState(() {
-          _locationDenied = false;
-          _showLocationOffDialog = false;
-        });
+        if (lastLat != null && lastLng != null) {
+          debugPrint('[HomeScreen] Using last known location: $lastLat, $lastLng');
+          setState(() {
+            _initialCamera = CameraPosition(target: LatLng(lastLat, lastLng), zoom: 15);
+            _driverMarkerPosition = LatLng(lastLat, lastLng);
+            _locationLoaded = true;
+          });
+        } else {
+          setState(() {
+            _locationDenied = false;
+            _showLocationOffDialog = false;
+            _locationLoaded = true;
+          });
+        }
       }
     }
   }

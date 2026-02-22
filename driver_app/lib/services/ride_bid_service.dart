@@ -4,6 +4,7 @@ import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:http/http.dart' as http;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import 'package:flutter/foundation.dart';
 import 'package:tbidder_driver_app/core/api_config.dart';
 import 'package:tbidder_driver_app/models/incoming_request.dart';
 import 'package:tbidder_driver_app/services/profile_storage_service.dart';
@@ -84,7 +85,8 @@ class RideBidService {
     }
   }
 
-  /// Create driverId if missing by calling verification-register with phone, then resolve.
+  /// Create driverId if missing by calling verification-register with phone.
+  /// Backend auto-generates driverId from phone number and returns it in response.
   Future<String?> createDriverIdIfMissing(String phone) async {
     try {
       final token = await ProfileStorageService.getAuthToken();
@@ -92,17 +94,28 @@ class RideBidService {
       if (token != null && token.trim().isNotEmpty) {
         headers['Authorization'] = 'Bearer ${token.trim()}';
       }
-      // verification-register generates driverId server-side when none exists
-      await http
+      debugPrint('[RideBidService] Creating driver ID for phone: $phone');
+      
+      // verification-register auto-generates driverId server-side when none exists
+      final response = await http
           .post(
             Uri.parse('$_base/api/v1/drivers/verification-register'),
             headers: headers,
             body: json.encode({'phone': phone.trim()}),
           )
-          .timeout(const Duration(seconds: 10), onTimeout: () => throw Exception('Timeout'));
-      // Re-resolve to fetch the generated ID
-      return await resolveDriverIdByPhone(phone);
-    } catch (_) {
+          .timeout(const Duration(seconds: 15), onTimeout: () => throw Exception('Timeout'));
+      
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final data = json.decode(response.body);
+        final driverId = data['driverId'] as String?;
+        debugPrint('[RideBidService] Driver ID created: $driverId');
+        return driverId;
+      } else {
+        debugPrint('[RideBidService] Failed to create driver ID: ${response.statusCode} ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      debugPrint('[RideBidService] Error creating driver ID: $e');
       return null;
     }
   }
